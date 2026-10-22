@@ -27,8 +27,19 @@ class LLMTarget:
     base_url: str = "https://api.openai.com/v1"  # OpenAI-compatible base (also Groq, OpenRouter, Ollama, ...)
 
 
+def resolve_model(provider: str, model: str) -> str:
+    """Map 'auto'/empty to a sensible default per provider."""
+    m = (model or "").strip().lower()
+    if m and m != "auto":
+        return model
+    return "gemini-flash-latest" if provider == "gemini" else "gpt-4o-mini"
+
+
 async def complete(target: LLMTarget, system: str, user: str, max_tokens: int = 400, timeout: float = 45) -> str:
     """Run one chat completion and return plain text. Raises LLMError on failure."""
+    model = resolve_model(target.provider, target.model)
+    if model != target.model:
+        target = LLMTarget(provider=target.provider, model=model, api_key=target.api_key, base_url=target.base_url)
     async with httpx.AsyncClient(timeout=timeout) as client:
         try:
             if target.provider == "gemini":
@@ -60,6 +71,10 @@ async def _openai_compat(client: httpx.AsyncClient, t: LLMTarget, system: str, u
             "temperature": 0.4,
         },
     )
+    if r.status_code == 404 and t.model != "gemini-flash-latest":
+        # model name not available for this key; retry the evergreen alias once
+        retry = LLMTarget(provider=t.provider, model="gemini-flash-latest", api_key=t.api_key, base_url=t.base_url)
+        return await _gemini(client, retry, system, user, max_tokens)
     if r.status_code != 200:
         raise LLMError(_provider_error(r))
     data = r.json()
@@ -80,6 +95,10 @@ async def _gemini(client: httpx.AsyncClient, t: LLMTarget, system: str, user: st
             "generationConfig": {"maxOutputTokens": max_tokens, "temperature": 0.4},
         },
     )
+    if r.status_code == 404 and t.model != "gemini-flash-latest":
+        # model name not available for this key; retry the evergreen alias once
+        retry = LLMTarget(provider=t.provider, model="gemini-flash-latest", api_key=t.api_key, base_url=t.base_url)
+        return await _gemini(client, retry, system, user, max_tokens)
     if r.status_code != 200:
         raise LLMError(_provider_error(r))
     data = r.json()

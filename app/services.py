@@ -58,7 +58,8 @@ def mask_key(key: str) -> str:
 
 KEY_PATTERNS = [
     re.compile(r"sk-[A-Za-z0-9_\-]{16,}"),   # OpenAI-style
-    re.compile(r"AIza[0-9A-Za-z_\-]{30,}"),  # Google/Gemini-style
+    re.compile(r"AIza[0-9A-Za-z_\-]{30,}"),  # Google/Gemini-style (classic)
+    re.compile(r"AQ\.[A-Za-z0-9_\-]{20,}"),  # Google/Gemini-style (new format)
 ]
 
 

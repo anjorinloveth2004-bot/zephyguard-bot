@@ -50,6 +50,7 @@ def _main_menu(chat_id: int, grp: dict) -> tuple[str, InlineKeyboardMarkup]:
         kb.button(text="🗑 disconnect key", callback_data=f"k:{chat_id}:disc")
     kb.button(text="📊 usage this month", callback_data=f"u:{chat_id}")
     kb.button(text="🎭 personality", callback_data=f"pers:{chat_id}")
+    kb.button(text="🧠 model", callback_data=f"mdl:{chat_id}")
     kb.button(text="🧩 features", callback_data=f"feat:{chat_id}")
     kb.button(text="🌍 timezone", callback_data=f"tz:{chat_id}")
     kb.button(text="🔒 scheduled lock", callback_data=f"lk:{chat_id}")
@@ -192,6 +193,12 @@ async def free_text(message: Message, bot: Bot, db: Database, cfg: Settings, key
     elif state == "prompt":
         from app.handlers.settings import receive_custom_prompt
         await receive_custom_prompt(message, db, chat_id, uid)
+    elif state == "model":
+        m = message.text.strip().replace(" ", "")
+        await db.update_group(chat_id, model=m[:80])
+        await db.set_dm_state(uid, "")
+        await message.answer(f"model set to {m}.")
+        await _show_menu(message, db, chat_id)
     elif state == "pers":
         await db.update_group(chat_id, personality=message.text.strip()[:300])
         await db.set_dm_state(uid, "")
@@ -217,13 +224,13 @@ async def _receive_key(
 
     if not looks_like_key(raw):
         await message.answer(
-            "that doesn't look like an api key. paste the key itself (sk-... for openai, AIza... for gemini)."
+            "that doesn't look like an api key. paste the key itself (sk-... for openai, AIza... or AQ.Ab8R... for gemini)."
             + ("" if deleted else " also, please delete the message you just sent.")
         )
         return
 
     model = cfg.default_openai_model if provider == "openai" else cfg.default_gemini_model
-    if provider == "openai" and raw.startswith("AIza"):
+    if provider == "openai" and (raw.startswith("AIza") or raw.startswith("AQ.")):
         provider = "gemini"
         model = cfg.default_gemini_model
     try:
@@ -232,6 +239,12 @@ async def _receive_key(
         await message.answer(f"key test failed: {exc}. nothing was saved. try again or pick another key.")
         return
 
+    # if the default model 404'd, validate_key retried gemini-flash-latest; persist what worked
+    if provider == "gemini" and model != "gemini-flash-latest":
+        try:
+            await validate_key(provider, raw, model, cfg.openai_base_url)
+        except LLMError:
+            model = "gemini-flash-latest"
     await db.update_group(
         chat_id,
         key_enc=keys.encrypt(raw),
@@ -465,3 +478,19 @@ async def refresh_admins(cb: CallbackQuery, bot: Bot, db: Database, cfg: Setting
         await db.upsert_admin(chat_id, a.user.id, a.user.username or "", a.user.first_name or "")
     await cb.answer(f"{len(admins)} admins synced")
     await _show_menu(cb, db, chat_id)
+
+
+@router.callback_query(F.data.startswith("mdl:"))
+async def model_pick(cb: CallbackQuery, db: Database, bot: Bot, cfg: Settings) -> None:
+    chat_id = int(cb.data.split(":")[1])
+    if not await _authorized_group(bot, db, cfg, chat_id, cb.from_user.id):
+        await cb.answer("not allowed", show_alert=True)
+        return
+    await db.set_dm_state(cb.from_user.id, "model", chat_id)
+    grp = await db.get_group(chat_id)
+    await cb.message.answer(
+        f"current model: {grp['model'] or 'default'}\n\n"
+        "send the model name to use, e.g. gemini-flash-latest, gemini-2.5-flash, gemini-2.5-pro, gpt-4o-mini. "
+        "or send 'auto' to let zephy pick what works."
+    )
+    await cb.answer()
