@@ -1,0 +1,102 @@
+"""Provider-agnostic LLM client: OpenAI-compatible APIs and Google Gemini.
+
+Each group stores its own provider/model/encrypted key (BYOK). An optional
+operator-paid pooled key can serve free-tier groups under daily caps.
+"""
+from __future__ import annotations
+
+import logging
+from dataclasses import dataclass
+
+import httpx
+
+log = logging.getLogger(__name__)
+
+PROVIDERS = {"openai", "gemini"}
+
+
+class LLMError(Exception):
+    pass
+
+
+@dataclass
+class LLMTarget:
+    provider: str          # "openai" or "gemini"
+    model: str
+    api_key: str
+    base_url: str = "https://api.openai.com/v1"  # OpenAI-compatible base (also Groq, OpenRouter, Ollama, ...)
+
+
+async def complete(target: LLMTarget, system: str, user: str, max_tokens: int = 400, timeout: float = 45) -> str:
+    """Run one chat completion and return plain text. Raises LLMError on failure."""
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        try:
+            if target.provider == "gemini":
+                return await _gemini(client, target, system, user, max_tokens)
+            return await _openai_compat(client, target, system, user, max_tokens)
+        except httpx.HTTPError as exc:
+            raise LLMError(f"network error talking to {target.provider}: {exc.__class__.__name__}") from exc
+
+
+async def validate_key(provider: str, api_key: str, model: str, base_url: str = "https://api.openai.com/v1") -> None:
+    """Tiny test call used when an admin connects a key. Raises LLMError if the key is bad."""
+    target = LLMTarget(provider=provider, model=model, api_key=api_key, base_url=base_url)
+    out = await complete(target, "reply with the single word ok", "ping", max_tokens=5, timeout=20)
+    if not out:
+        raise LLMError("provider returned an empty response")
+
+
+async def _openai_compat(client: httpx.AsyncClient, t: LLMTarget, system: str, user: str, max_tokens: int) -> str:
+    r = await client.post(
+        f"{t.base_url}/chat/completions",
+        headers={"Authorization": f"Bearer {t.api_key}"},
+        json={
+            "model": t.model,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            "max_tokens": max_tokens,
+            "temperature": 0.4,
+        },
+    )
+    if r.status_code != 200:
+        raise LLMError(_provider_error(r))
+    data = r.json()
+    try:
+        return (data["choices"][0]["message"]["content"] or "").strip()
+    except (KeyError, IndexError, TypeError) as exc:
+        raise LLMError("unexpected response shape from provider") from exc
+
+
+async def _gemini(client: httpx.AsyncClient, t: LLMTarget, system: str, user: str, max_tokens: int) -> str:
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{t.model}:generateContent"
+    r = await client.post(
+        url,
+        headers={"x-goog-api-key": t.api_key, "Content-Type": "application/json"},
+        json={
+            "systemInstruction": {"parts": [{"text": system}]},
+            "contents": [{"role": "user", "parts": [{"text": user}]}],
+            "generationConfig": {"maxOutputTokens": max_tokens, "temperature": 0.4},
+        },
+    )
+    if r.status_code != 200:
+        raise LLMError(_provider_error(r))
+    data = r.json()
+    try:
+        parts = data["candidates"][0]["content"]["parts"]
+        return "".join(p.get("text", "") for p in parts).strip()
+    except (KeyError, IndexError, TypeError) as exc:
+        raise LLMError("unexpected response shape from Gemini") from exc
+
+
+def _provider_error(r: httpx.Response) -> str:
+    """Short, key-free error text. Never echo request headers or the key."""
+    code = r.status_code
+    if code in (401, 403):
+        return "the provider rejected this key (unauthorized)"
+    if code == 429:
+        return "the provider rate limit or quota was hit"
+    if code == 404:
+        return "model or endpoint not found (check the model name)"
+    return f"provider error (HTTP {code})"

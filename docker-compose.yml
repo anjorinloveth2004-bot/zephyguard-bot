@@ -1,0 +1,11 @@
+# VPS / any Docker host. Set values in .env (copy .env.example).
+# Postgres is external (Neon, Supabase, RDS...). To run a local Postgres for testing, see the README.
+services:
+  bot:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/app/data

@@ -1,0 +1,33 @@
+# Koyeb service spec (informational; Koyeb also takes these settings in its UI or CLI).
+# Deploy from a GitHub repo or a Docker image. Port 8080, health check /healthz.
+name: assistant-bot
+type: web
+build:
+  type: dockerfile
+  dockerfile: Dockerfile
+ports:
+  - port: 8080
+    protocol: http
+health_checks:
+  - protocol: http
+    port: 8080
+    path: /healthz
+env:
+  - key: BOT_TOKEN
+    secret: true
+  - key: ENCRYPTION_KEY
+    secret: true
+  - key: DATABASE_URL
+    secret: true
+  - key: WEBHOOK_BASE_URL
+    value: https://your-service.koyeb.app
+  - key: WEBHOOK_SECRET
+    secret: true
+  - key: BOT_USERNAME
+    value: YourBotUsername
+  - key: TAVILY_API_KEY
+    secret: true
+  - key: SERPER_API_KEY
+    secret: true
+  - key: BRAVE_API_KEY
+    secret: true

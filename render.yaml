@@ -1,0 +1,34 @@
+# Render blueprint. Creates a web service (webhook mode, free plan works).
+# Render's free web services sleep when idle, so for a bot that must always respond
+# choose the Starter plan, or use a background worker in polling mode (see README).
+services:
+  - type: web
+    name: assistant-bot
+    runtime: docker
+    plan: starter
+    healthCheckPath: /healthz
+    envVars:
+      - key: BOT_TOKEN
+        sync: false
+      - key: BOT_USERNAME
+        sync: false
+      - key: ENCRYPTION_KEY
+        generateValue: true
+      - key: DATABASE_URL
+        sync: false          # paste your Postgres URL (Neon, Supabase, Render Postgres...)
+      - key: WEBHOOK_BASE_URL
+        sync: false          # https://<your-service>.onrender.com (set after first deploy)
+      - key: WEBHOOK_SECRET
+        generateValue: true
+      - key: SUPER_ADMIN_IDS
+        sync: false
+      - key: POOL_PROVIDER
+        sync: false
+      - key: POOL_API_KEY
+        sync: false
+      - key: TAVILY_API_KEY
+        sync: false
+      - key: SERPER_API_KEY
+        sync: false
+      - key: BRAVE_API_KEY
+        sync: false
