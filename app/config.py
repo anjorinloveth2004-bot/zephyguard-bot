@@ -45,6 +45,10 @@ class Settings:
     brave_api_key: str = ""
     port: int = 8080
     log_level: str = "INFO"
+    bot_name: str = "Zephy"
+    # V2 feature switches (super-admin level). Off by default so a fresh deploy behaves like V1.
+    byod_enabled: bool = False
+    byod_max_pool: int = 3
     extra: dict = field(default_factory=dict)
 
 
@@ -66,7 +70,7 @@ def load_settings() -> Settings:
 
     return Settings(
         bot_token=token,
-        bot_username=os.getenv("BOT_USERNAME", "YourBotUsername").strip().lstrip("@"),
+        bot_username=os.getenv("BOT_USERNAME", "zephyguard").strip().lstrip("@"),
         encryption_key=enc,
         super_admin_ids=_csv_ints(os.getenv("SUPER_ADMIN_IDS", "")),
         database_url=normalize_database_url(
@@ -88,4 +92,7 @@ def load_settings() -> Settings:
         brave_api_key=os.getenv("BRAVE_API_KEY", "").strip(),
         port=int(os.getenv("PORT", "8080")),
         log_level=os.getenv("LOG_LEVEL", "INFO"),
+        bot_name=os.getenv("BOT_NAME", "Zephy").strip() or "Zephy",
+        byod_enabled=os.getenv("BYOD_ENABLED", "0").strip() in ("1", "true", "yes"),
+        byod_max_pool=int(os.getenv("BYOD_MAX_POOL", "3")),
     )

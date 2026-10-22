@@ -115,23 +115,16 @@ def _soft_locked(grp: dict) -> bool:
 
 
 async def _ai_classify(db: Database, cfg: Settings, keys: KeyBox, chat_id: int, text: str) -> str | None:
-    target, note = await resolve_llm(db, cfg, keys, chat_id)
-    if not target:
+    from app.ai import ask_ai  # local import keeps the guarded path the only route to the LLM
+    res = await ask_ai(
+        db, cfg, keys, chat_id,
+        "You are a group moderator. Reply with exactly one word: REMOVE if the message is spam, "
+        "scam, harassment, hate, or explicit sexual content; otherwise KEEP.",
+        text[:1000], max_tokens=3,
+    )
+    if res.text is None:
         return None
-    try:
-        out = await complete(
-            target,
-            "You are a group moderator. Reply with exactly one word: REMOVE if the message is spam, "
-            "scam, harassment, hate, or explicit sexual content; otherwise KEEP.",
-            text[:1000],
-            max_tokens=3,
-            timeout=15,
-        )
-    except LLMError as exc:
-        log.info("ai mod unavailable in %s: %s", chat_id, exc)
-        return None
-    await record_ai_call(db, cfg, chat_id, used_pool=bool(note))
-    return "ai moderation: spam or abuse" if out.strip().upper().startswith("REMOVE") else None
+    return "ai moderation: spam or abuse" if res.text.strip().upper().startswith("REMOVE") else None
 
 
 # ------------------------------------------------------------------ captcha

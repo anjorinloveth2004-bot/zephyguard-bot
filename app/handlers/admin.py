@@ -92,3 +92,74 @@ def _parse_id(args: str | None) -> int | None:
         return int((args or "").strip())
     except ValueError:
         return None
+
+
+def heat_bars(counts: dict[int, int]) -> str:
+    """Render 24 hourly call counts as a tiny text heat map (pure, testable)."""
+    if not counts:
+        return "no calls yet"
+    peak = max(counts.values()) or 1
+    blocks = " ▁▂▃▄▅▆▇█"
+    cells = []
+    for h in range(24):
+        v = counts.get(h, 0)
+        idx = 0 if v == 0 else max(1, round(v / peak * (len(blocks) - 1)))
+        cells.append(blocks[idx])
+    return f"00h {''.join(cells)} 23h (peak {peak})"
+
+
+def group_health(row: dict) -> str:
+    """One line per group: ok / warn / banned, driven by stored flags (pure)."""
+    if row.get("banned"):
+        return "banned"
+    if not row.get("key_enc") and not row.get("fallback_key_enc"):
+        return "no key (free tier only)"
+    return "ok"
+
+
+@router.message(Command("heat"))
+async def heat(message: Message, db: Database, cfg: Settings) -> None:
+    if message.from_user.id not in cfg.super_admin_ids:
+        return
+    rows = await db.all("SELECT hour, COUNT(*) AS n FROM ai_hourly GROUP BY hour") if await _has_table(db, "ai_hourly") else []
+    counts = {int(r["hour"]): int(r["n"]) for r in rows}
+    await message.answer(heat_bars(counts))
+
+
+@router.message(Command("health"))
+async def health(message: Message, db: Database, cfg: Settings) -> None:
+    if message.from_user.id not in cfg.super_admin_ids:
+        return
+    rows = await db.all("SELECT chat_id, title, banned, key_enc, fallback_key_enc FROM groups ORDER BY created_at DESC LIMIT 30")
+    if not rows:
+        await message.answer("no groups yet.")
+        return
+    await message.answer("\n".join(f"{r['chat_id']} | {r['title'] or '-'} | {group_health(r)}" for r in rows))
+
+
+@router.message(Command("broadcast"))
+async def broadcast(message: Message, command: CommandObject, db: Database, cfg: Settings) -> None:
+    """/broadcast <text>: send to every non-banned group. Super admins only."""
+    if message.from_user.id not in cfg.super_admin_ids:
+        return
+    body = (command.args or "").strip()
+    if not body:
+        await message.answer("usage: /broadcast <text>")
+        return
+    rows = await db.all("SELECT chat_id FROM groups WHERE banned = 0")
+    sent = 0
+    for r in rows:
+        try:
+            await message.bot.send_message(r["chat_id"], body[:1000])
+            sent += 1
+        except Exception:
+            pass
+    await message.answer(f"broadcast sent to {sent} of {len(rows)} groups.")
+
+
+async def _has_table(db: Database, name: str) -> bool:
+    try:
+        await db.one(f"SELECT 1 FROM {name} LIMIT 1")
+        return True
+    except Exception:
+        return False

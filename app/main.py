@@ -22,6 +22,9 @@ from app.db import Database
 from app.handlers import admin as admin_handlers
 from app.handlers import dm as dm_handlers
 from app.handlers import group as group_handlers
+from app.handlers import v2 as v2_handlers
+from app.handlers import settings as settings_handlers
+from app.handlers import mod_v2 as mod_v2_handlers
 from app.scheduler import run_scheduler
 
 log = logging.getLogger("assistant-bot")
@@ -29,16 +32,6 @@ log = logging.getLogger("assistant-bot")
 PRIVATE_COMMANDS = [
     BotCommand(command="start", description="open the bot / manage your groups"),
     BotCommand(command="settings", description="group settings (dm only)"),
-    BotCommand(command="points", description="your points across groups"),
-    BotCommand(command="help", description="all commands"),
-]
-# super-admin-only commands, registered per user below (invisible to everyone else)
-SUPER_ADMIN_COMMANDS = [
-    BotCommand(command="groups", description="list all groups + usage"),
-    BotCommand(command="stats", description="platform stats"),
-    BotCommand(command="bangroup", description="ban a group: /bangroup <chat_id>"),
-    BotCommand(command="unbangroup", description="unban a group: /unbangroup <chat_id>"),
-    BotCommand(command="disconnect", description="force-disconnect a key: /disconnect <chat_id>"),
 ]
 GROUP_COMMANDS = [
     BotCommand(command="ask", description="ask the ai a question"),
@@ -46,12 +39,6 @@ GROUP_COMMANDS = [
     BotCommand(command="points", description="your points"),
     BotCommand(command="lb", description="leaderboard"),
     BotCommand(command="rules", description="group rules"),
-    BotCommand(command="trivia", description="join/start a trivia round"),
-    BotCommand(command="wiki", description="the group's living wiki"),
-    BotCommand(command="capsule", description="view a time capsule (when unlocked)"),
-    BotCommand(command="appeal", description="appeal a ban (dm the bot)"),
-    BotCommand(command="roast", description="opt-in roast me"),
-    BotCommand(command="menu", description="tappable button panel"),
     BotCommand(command="help", description="all commands"),
 ]
 
@@ -62,6 +49,9 @@ def build_dispatcher(db: Database, cfg: Settings, keys: KeyBox) -> Dispatcher:
     dp.include_router(admin_handlers.router)
     dp.include_router(dm_handlers.router)
     dp.include_router(group_handlers.router)
+    dp.include_router(v2_handlers.router)
+    dp.include_router(settings_handlers.router)
+    dp.include_router(mod_v2_handlers.router)
     return dp
 
 
@@ -78,15 +68,8 @@ async def run() -> None:
     # Bot menu commands. Failures here (rate limits, no rights) must not stop the bot.
     try:
         from aiogram.types import BotCommandScopeAllPrivateChats, BotCommandScopeAllGroupChats
-        from aiogram.types import BotCommandScopeChat
         await bot.set_my_commands(PRIVATE_COMMANDS, scope=BotCommandScopeAllPrivateChats())
         await bot.set_my_commands(GROUP_COMMANDS, scope=BotCommandScopeAllGroupChats())
-        # super admins get the full private menu + admin commands in their DM
-        for sid in cfg.super_admin_ids:
-            try:
-                await bot.set_my_commands(PRIVATE_COMMANDS + SUPER_ADMIN_COMMANDS, scope=BotCommandScopeChat(chat_id=sid))
-            except Exception as exc:
-                log.info("super-admin menu for %s failed: %s", sid, exc)
     except TelegramBadRequest as exc:
         log.warning("could not set bot commands: %s", exc)
 

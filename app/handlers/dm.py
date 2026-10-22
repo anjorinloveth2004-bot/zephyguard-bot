@@ -189,6 +189,9 @@ async def free_text(message: Message, bot: Bot, db: Database, cfg: Settings, key
         await db.set_dm_state(uid, "")
         await message.answer(f"timezone set to {name}.")
         await _show_menu(message, db, chat_id)
+    elif state == "prompt":
+        from app.handlers.settings import receive_custom_prompt
+        await receive_custom_prompt(message, db, chat_id, uid)
     elif state == "pers":
         await db.update_group(chat_id, personality=message.text.strip()[:300])
         await db.set_dm_state(uid, "")
@@ -261,11 +264,10 @@ async def personality(cb: CallbackQuery, db: Database, bot: Bot, cfg: Settings) 
     if not await _authorized_group(bot, db, cfg, chat_id, cb.from_user.id):
         await cb.answer("not allowed", show_alert=True)
         return
-    await db.set_dm_state(cb.from_user.id, "pers", chat_id)
-    await _edit_or_send(
-        cb,
-        "send the personality for the ai in one message, e.g. 'dry, short, a little sarcastic, never rude'.",
-    )
+    from app.handlers.settings import persona_screen
+    grp = await db.get_group(chat_id)
+    text, kb = persona_screen(chat_id, grp)
+    await _edit_or_send(cb, text, kb)
 
 
 @router.callback_query(F.data.startswith("feat:"))

@@ -75,6 +75,30 @@ async def _expire_captchas(bot: Bot, db: Database) -> None:
         await db.exec("DELETE FROM captchas WHERE chat_id = :c AND user_id = :u", c=r["chat_id"], u=r["user_id"])
 
 
+TRIVIA_EVERY_S = 6 * 3600  # one timed round per group every six hours, only where trivia is on
+
+
+async def _tick_trivia(bot: Bot, db: Database) -> None:
+    """Open a timed trivia round in groups where trivia_on and no round is open."""
+    from app import store
+    from app.features import TRIVIA_BANK
+    import random
+    now = time.time()
+    rows = await db.all("SELECT chat_id, trivia_next_ts FROM groups WHERE trivia_on = 1")
+    for r in rows:
+        if (r["trivia_next_ts"] or 0) > now:
+            continue
+        if await store.current_trivia(db, r["chat_id"]):
+            continue
+        question, answer = random.choice(TRIVIA_BANK)
+        await store.open_trivia(db, r["chat_id"], question, answer, now)
+        await db.update_group(r["chat_id"], trivia_next_ts=int(now + TRIVIA_EVERY_S))
+        try:
+            await bot.send_message(r["chat_id"], f"🧠 trivia time: {question}\nreply with your answer. first right answer wins points.")
+        except Exception as exc:
+            log.info("trivia post failed for %s: %s", r["chat_id"], exc)
+
+
 async def run_scheduler(bot: Bot, db: Database, stop: asyncio.Event) -> None:
     """Forever loop. Errors are logged per item so one bad group never stops the others."""
     while not stop.is_set():
@@ -90,6 +114,15 @@ async def run_scheduler(bot: Bot, db: Database, stop: asyncio.Event) -> None:
             await _expire_captchas(bot, db)
         except Exception as exc:
             log.exception("scheduler tick failed: %s", exc)
+        try:
+            await _tick_trivia(bot, db)
+        except Exception as exc:
+            log.exception("trivia tick failed: %s", exc)
+        try:
+            from app.handlers.mod_v2 import reveal_due_capsules
+            await reveal_due_capsules(bot, db)
+        except Exception as exc:
+            log.exception("capsule tick failed: %s", exc)
         try:
             await asyncio.wait_for(stop.wait(), timeout=30)
         except asyncio.TimeoutError:

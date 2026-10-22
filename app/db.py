@@ -13,6 +13,7 @@ Query params like ?sslmode=require are translated for asyncpg automatically.
 from __future__ import annotations
 
 import logging
+import re
 import time
 from typing import Any, Iterable
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
@@ -24,6 +25,10 @@ log = logging.getLogger(__name__)
 
 # Columns of `groups` that the code is allowed to update (allowlist, never built from user input).
 GROUP_FIELDS = {
+    "welcome_image_id", "welcome_mode", "edit_mode", "fallback_provider", "fallback_model",
+    "fallback_key_enc", "fallback_base_url", "spend_cap_cents",
+    "trivia_on", "trivia_next_ts",
+    "custom_prompt", "tone_note", "slow_threshold",
     "title", "banned", "ai_enabled", "mod_enabled", "ai_mod", "welcome_enabled",
     "captcha_enabled", "points_enabled", "lb_size", "points_per_msg", "points_hour_cap",
     "reset_policy", "warn_limit", "warn_action", "allow_links", "welcome_text",
@@ -133,6 +138,115 @@ SCHEMA = [
         created_ts BIGINT NOT NULL,
         PRIMARY KEY (chat_id, user_id)
     )""",
+    """CREATE TABLE IF NOT EXISTS group_memory (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        chat_id BIGINT NOT NULL,
+        kind TEXT NOT NULL,
+        body TEXT NOT NULL,
+        pinned INTEGER NOT NULL DEFAULT 0,
+        ts BIGINT NOT NULL DEFAULT 0
+    )""",
+    """CREATE TABLE IF NOT EXISTS wiki (
+        chat_id BIGINT NOT NULL,
+        slug TEXT NOT NULL,
+        body TEXT NOT NULL,
+        PRIMARY KEY (chat_id, slug)
+    )""",
+    """CREATE TABLE IF NOT EXISTS faqs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        chat_id BIGINT NOT NULL,
+        question TEXT NOT NULL,
+        answer TEXT NOT NULL DEFAULT '',
+        hits INTEGER NOT NULL DEFAULT 0,
+        pinned INTEGER NOT NULL DEFAULT 0
+    )""",
+    """CREATE TABLE IF NOT EXISTS trivia_rounds (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        chat_id BIGINT NOT NULL,
+        question TEXT NOT NULL,
+        answer TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'open',
+        winner_id BIGINT NOT NULL DEFAULT 0,
+        created_ts BIGINT NOT NULL DEFAULT 0
+    )""",
+    """CREATE TABLE IF NOT EXISTS capsules (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        chat_id BIGINT NOT NULL,
+        user_id BIGINT NOT NULL,
+        body TEXT NOT NULL,
+        reveal_ts BIGINT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending'
+    )""",
+    """CREATE TABLE IF NOT EXISTS federation (
+        fed_id TEXT NOT NULL,
+        chat_id BIGINT NOT NULL,
+        PRIMARY KEY (fed_id, chat_id)
+    )""",
+    """CREATE TABLE IF NOT EXISTS shadow_flags (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        chat_id BIGINT NOT NULL,
+        user_id BIGINT NOT NULL,
+        text TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'open',
+        ts BIGINT NOT NULL DEFAULT 0
+    )""",
+    """CREATE TABLE IF NOT EXISTS appeals (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        chat_id BIGINT NOT NULL,
+        user_id BIGINT NOT NULL,
+        text TEXT NOT NULL,
+        draft TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'open',
+        ts BIGINT NOT NULL DEFAULT 0
+    )""",
+    """CREATE TABLE IF NOT EXISTS spend (
+        chat_id BIGINT NOT NULL,
+        month TEXT NOT NULL,
+        cents DOUBLE PRECISION NOT NULL DEFAULT 0,
+        PRIMARY KEY (chat_id, month)
+    )""",
+    """CREATE TABLE IF NOT EXISTS ai_heat (
+        chat_id BIGINT NOT NULL,
+        day TEXT NOT NULL,
+        hour INTEGER NOT NULL,
+        calls INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (chat_id, day, hour)
+    )""",
+]
+
+
+GROUP_V2_COLUMNS = [
+    "ALTER TABLE groups ADD COLUMN IF NOT EXISTS edit_mode INTEGER NOT NULL DEFAULT 1",
+    "ALTER TABLE groups ADD COLUMN IF NOT EXISTS roast_on INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE groups ADD COLUMN IF NOT EXISTS shadow_mod INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE groups ADD COLUMN IF NOT EXISTS slow_mode INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE groups ADD COLUMN IF NOT EXISTS slow_ai INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE groups ADD COLUMN IF NOT EXISTS faq_on INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE groups ADD COLUMN IF NOT EXISTS wiki_on INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE groups ADD COLUMN IF NOT EXISTS memory_on INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE groups ADD COLUMN IF NOT EXISTS twin_on INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE groups ADD COLUMN IF NOT EXISTS appeals_on INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE groups ADD COLUMN IF NOT EXISTS spend_cap_cents INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE groups ADD COLUMN IF NOT EXISTS persona_preset TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE groups ADD COLUMN IF NOT EXISTS system_prompt TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE groups ADD COLUMN IF NOT EXISTS welcome_image_id TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE groups ADD COLUMN IF NOT EXISTS welcome_mode TEXT NOT NULL DEFAULT 'group'",
+    "ALTER TABLE groups ADD COLUMN IF NOT EXISTS fallback_provider TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE groups ADD COLUMN IF NOT EXISTS fallback_model TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE groups ADD COLUMN IF NOT EXISTS fallback_key_enc TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE groups ADD COLUMN IF NOT EXISTS fallback_base_url TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE groups ADD COLUMN IF NOT EXISTS custom_base_url TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE groups ADD COLUMN IF NOT EXISTS federation_id TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE groups ADD COLUMN IF NOT EXISTS byod_dsn_enc TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE groups ADD COLUMN IF NOT EXISTS byod_dsn_hint TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE groups ADD COLUMN IF NOT EXISTS byod_status TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE groups ADD COLUMN IF NOT EXISTS menu_message_id BIGINT",
+    "ALTER TABLE groups ADD COLUMN IF NOT EXISTS custom_prompt TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE groups ADD COLUMN IF NOT EXISTS tone_note TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE groups ADD COLUMN IF NOT EXISTS slow_threshold INTEGER NOT NULL DEFAULT 5",
+    "ALTER TABLE groups ADD COLUMN IF NOT EXISTS trivia_on INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE groups ADD COLUMN IF NOT EXISTS trivia_next_ts INTEGER NOT NULL DEFAULT 0",
 ]
 
 
@@ -177,6 +291,24 @@ class Database:
         async with self.engine.begin() as conn:
             for stmt in SCHEMA:
                 await conn.execute(text(stmt))
+        # V2 columns on `groups` and extra V2 table columns. Each runs in its own transaction
+        # so one failure never aborts the rest. SQLite has no ADD COLUMN IF NOT EXISTS, so we
+        # check PRAGMA table_info first.
+        is_sqlite = self.engine.dialect.name == "sqlite"
+        for col_sql in GROUP_V2_COLUMNS + V2_TABLE_COLUMNS:
+            try:
+                if is_sqlite:
+                    m = re.match(r"ALTER TABLE (\w+) ADD COLUMN IF NOT EXISTS (\w+) (.*)", col_sql)
+                    table, col, rest = m.group(1), m.group(2), m.group(3)
+                    async with self.engine.connect() as conn:
+                        cols = (await conn.execute(text(f"PRAGMA table_info({table})"))).mappings().all()
+                    if any(c["name"] == col for c in cols):
+                        continue
+                    col_sql = f"ALTER TABLE {table} ADD COLUMN {col} {rest}"
+                async with self.engine.begin() as conn:
+                    await conn.execute(text(col_sql))
+            except Exception as exc:
+                log.info("v2 column migration skipped: %s", exc.__class__.__name__)
         log.info("database schema ready")
 
     async def close(self) -> None:
@@ -233,10 +365,6 @@ class Database:
             c=chat_id, u=user_id, un=username or "", n=name or "",
         )
 
-    async def admins_count(self, chat_id: int) -> int:
-        row = await self.one("SELECT COUNT(*) AS n FROM group_admins WHERE chat_id = :c", c=chat_id)
-        return int(row["n"]) if row else 0
-
     async def remove_admin(self, chat_id: int, user_id: int) -> None:
         await self.exec("DELETE FROM group_admins WHERE chat_id = :c AND user_id = :u", c=chat_id, u=user_id)
 
@@ -291,3 +419,13 @@ class Database:
             "ON CONFLICT (chat_id, day) DO UPDATE SET calls = pool_group_usage.calls + 1",
             c=chat_id, d=day,
         )
+
+
+V2_TABLE_COLUMNS = [
+    "ALTER TABLE shadow_flags ADD COLUMN IF NOT EXISTS msg_id BIGINT NOT NULL DEFAULT 0",
+    "ALTER TABLE shadow_flags ADD COLUMN IF NOT EXISTS user_name TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE appeals ADD COLUMN IF NOT EXISTS user_name TEXT NOT NULL DEFAULT ''",
+]
+
+GROUP_FIELDS |= {re.match(r"ALTER TABLE groups ADD COLUMN IF NOT EXISTS (\w+)", c).group(1) for c in GROUP_V2_COLUMNS}
+
