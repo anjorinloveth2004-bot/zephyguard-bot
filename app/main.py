@@ -46,6 +46,12 @@ GROUP_COMMANDS = [
     BotCommand(command="points", description="your points"),
     BotCommand(command="lb", description="leaderboard"),
     BotCommand(command="rules", description="group rules"),
+    BotCommand(command="trivia", description="join/start a trivia round"),
+    BotCommand(command="wiki", description="the group's living wiki"),
+    BotCommand(command="capsule", description="view a time capsule (when unlocked)"),
+    BotCommand(command="appeal", description="appeal a ban (dm the bot)"),
+    BotCommand(command="roast", description="opt-in roast me"),
+    BotCommand(command="menu", description="tappable button panel"),
     BotCommand(command="help", description="all commands"),
 ]
 

@@ -380,8 +380,21 @@ async def rules(message: Message, db: Database) -> None:
 
 
 @router.message(Command("help"))
-async def help_cmd(message: Message) -> None:
-    await message.reply(
-        "commands: /ask, /summary, /points, /lb, /rules, /settings (admins, opens dm)\n"
-        "admins: /warn, /ban, /kick, /mute, /purge (reply to a message), /award N reason (reply)"
-    )
+async def help_cmd(message: Message, bot: Bot, db: Database, cfg: Settings) -> None:
+    lines = [
+        "👤 everyone:",
+        "/ask question, /summary recap, /points ur score, /lb leaderboard",
+        "/rules, /trivia, /wiki, /roast (opt-in), /menu tappable panel",
+        "",
+        "👮 group admins (reply to a message where noted):",
+        "/warn, /ban, /kick, /mute, /purge (reply), /award N reason (reply)",
+        "/settings opens the full dm settings panel",
+    ]
+    if message.from_user and message.from_user.id in cfg.super_admin_ids:
+        lines += [
+            "",
+            "👑 super admin (u only, hidden from everyone else):",
+            "/groups all groups + usage, /stats platform stats",
+            "/bangroup /unbangroup <chat_id>, /disconnect <chat_id>",
+        ]
+    await message.reply("\n".join(lines))
