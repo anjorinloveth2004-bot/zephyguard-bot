@@ -108,8 +108,16 @@ async def run() -> None:
             await bot.delete_webhook(drop_pending_updates=False)
             log.info("polling mode")
             polling = asyncio.create_task(dp.start_polling(bot, allowed_updates=allowed, handle_signals=False))
+            # render web services want an open port even in polling mode: keep a health endpoint up
+            health = web.Application()
+            health.router.add_get("/", lambda r: web.Response(text="zephy is up"))
+            hrunner = web.AppRunner(health)
+            await hrunner.setup()
+            await web.TCPSite(hrunner, "0.0.0.0", cfg.port).start()
+            log.info("health endpoint on port %s", cfg.port)
             await stop.wait()
             polling.cancel()
+            await hrunner.cleanup()
     finally:
         stop.set()
         scheduler_task.cancel()
