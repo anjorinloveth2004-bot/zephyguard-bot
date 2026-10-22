@@ -66,9 +66,28 @@ async def _is_admin(bot: Bot, chat_id: int, user_id: int) -> bool:
     return is_adm
 
 
-async def _ensure_group(db: Database, chat) -> dict:
-    return await db.ensure_group(chat.id, chat.title or "")
+async def _ensure_group(db: Database, bot: Bot, chat) -> dict:
+    grp = await db.ensure_group(chat.id, chat.title or "")
+    try:
+        admins = await db.admins_count(chat.id)
+        if admins == 0:
+            for a in await bot.get_chat_administrators(chat.id):
+                await db.upsert_admin(chat.id, a.user.id, a.user.username or "", a.user.first_name or "")
+    except Exception as exc:
+        log.info("admin backfill failed in %s: %s", chat.id, exc)
+    return grp
 
+
+
+# ------------------------------------------------------------------ bot added to group
+@router.my_chat_member()
+async def on_my_chat_member(event: ChatMemberUpdated, bot: Bot, db: Database) -> None:
+    chat = event.chat
+    if chat.type not in ("group", "supergroup"):
+        return
+    status = getattr(event.new_chat_member, "status", "")
+    if status in ("member", "administrator", "restricted"):
+        await _ensure_group(db, bot, chat)
 
 # ------------------------------------------------------------------ settings redirect
 @router.message(Command("settings"))
@@ -86,7 +105,7 @@ async def settings_redirect(message: Message, bot: Bot, db: Database, cfg: Setti
 # ------------------------------------------------------------------ admin tracking
 @router.message(F.new_chat_members)
 async def on_join(message: Message, bot: Bot, db: Database, cfg: Settings) -> None:
-    grp = await _ensure_group(db, message.chat)
+    grp = await _ensure_group(db, bot, message.chat)
     for u in message.new_chat_members:
         if u.is_bot:
             continue
@@ -143,7 +162,7 @@ async def on_text(message: Message, bot: Bot, db: Database, cfg: Settings, keys:
     if text.startswith("/"):
         # Let the command routers handle slash-commands (aiogram would otherwise stop here).
         raise SkipHandler()
-    grp = await _ensure_group(db, message.chat)
+    grp = await _ensure_group(db, bot, message.chat)
     is_admin = await _is_admin(bot, message.chat.id, message.from_user.id)
 
     if grp["banned"]:

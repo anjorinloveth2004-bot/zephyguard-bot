@@ -233,6 +233,10 @@ class Database:
             c=chat_id, u=user_id, un=username or "", n=name or "",
         )
 
+    async def admins_count(self, chat_id: int) -> int:
+        row = await self.one("SELECT COUNT(*) AS n FROM group_admins WHERE chat_id = :c", c=chat_id)
+        return int(row["n"]) if row else 0
+
     async def remove_admin(self, chat_id: int, user_id: int) -> None:
         await self.exec("DELETE FROM group_admins WHERE chat_id = :c AND user_id = :u", c=chat_id, u=user_id)
 
