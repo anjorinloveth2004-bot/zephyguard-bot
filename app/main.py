@@ -29,6 +29,16 @@ log = logging.getLogger("assistant-bot")
 PRIVATE_COMMANDS = [
     BotCommand(command="start", description="open the bot / manage your groups"),
     BotCommand(command="settings", description="group settings (dm only)"),
+    BotCommand(command="points", description="your points across groups"),
+    BotCommand(command="help", description="all commands"),
+]
+# super-admin-only commands, registered per user below (invisible to everyone else)
+SUPER_ADMIN_COMMANDS = [
+    BotCommand(command="groups", description="list all groups + usage"),
+    BotCommand(command="stats", description="platform stats"),
+    BotCommand(command="bangroup", description="ban a group: /bangroup <chat_id>"),
+    BotCommand(command="unbangroup", description="unban a group: /unbangroup <chat_id>"),
+    BotCommand(command="disconnect", description="force-disconnect a key: /disconnect <chat_id>"),
 ]
 GROUP_COMMANDS = [
     BotCommand(command="ask", description="ask the ai a question"),
@@ -62,8 +72,15 @@ async def run() -> None:
     # Bot menu commands. Failures here (rate limits, no rights) must not stop the bot.
     try:
         from aiogram.types import BotCommandScopeAllPrivateChats, BotCommandScopeAllGroupChats
+        from aiogram.types import BotCommandScopeChat
         await bot.set_my_commands(PRIVATE_COMMANDS, scope=BotCommandScopeAllPrivateChats())
         await bot.set_my_commands(GROUP_COMMANDS, scope=BotCommandScopeAllGroupChats())
+        # super admins get the full private menu + admin commands in their DM
+        for sid in cfg.super_admin_ids:
+            try:
+                await bot.set_my_commands(PRIVATE_COMMANDS + SUPER_ADMIN_COMMANDS, scope=BotCommandScopeChat(chat_id=sid))
+            except Exception as exc:
+                log.info("super-admin menu for %s failed: %s", sid, exc)
     except TelegramBadRequest as exc:
         log.warning("could not set bot commands: %s", exc)
 
