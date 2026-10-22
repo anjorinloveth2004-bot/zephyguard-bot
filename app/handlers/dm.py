@@ -42,7 +42,7 @@ async def _authorized_group(bot: Bot, db: Database, cfg: Settings, chat_id: int,
     return await is_group_admin(bot, chat_id, user_id)
 
 
-def _main_menu(chat_id: int, grp: dict) -> tuple[str, InlineKeyboardMarkup]:
+def _main_menu(chat_id: int, grp: dict, byod_enabled: bool = False) -> tuple[str, InlineKeyboardMarkup]:
     kb = InlineKeyboardBuilder()
     has_key = bool(grp["key_enc"])
     kb.button(text=("🔁 replace api key" if has_key else "🔑 connect api key"), callback_data=f"k:{chat_id}:connect")
@@ -51,12 +51,15 @@ def _main_menu(chat_id: int, grp: dict) -> tuple[str, InlineKeyboardMarkup]:
     kb.button(text="📊 usage this month", callback_data=f"u:{chat_id}")
     kb.button(text="🎭 personality", callback_data=f"pers:{chat_id}")
     kb.button(text="🧠 model", callback_data=f"mdl:{chat_id}")
+    kb.button(text="🔁 fallback model", callback_data=f"fbk:{chat_id}")
     kb.button(text="🧩 features", callback_data=f"feat:{chat_id}")
     kb.button(text="🌍 timezone", callback_data=f"tz:{chat_id}")
     kb.button(text="🔒 scheduled lock", callback_data=f"lk:{chat_id}")
     kb.button(text="🏆 points board", callback_data=f"pts:{chat_id}")
     kb.button(text="👮 refresh admins", callback_data=f"adm:{chat_id}")
-    kb.adjust(1, 1, 1, 2, 1, 1, 1, 1)
+    if byod_enabled:
+        kb.button(text="🗄 bring ur own db", callback_data=f"byod:{chat_id}")
+    kb.adjust(1, 1, 1, 2, 1, 1, 1, 1, 1)
     text = (
         f"⚙️ settings: {grp['title'] or chat_id}\n\n"
         f"ai key: {('connected ' + grp['provider'] + ' (' + grp['key_hint'] + ')') if has_key else 'not connected (free tier if available)'}\n"
@@ -73,11 +76,14 @@ async def _edit_or_send(cb: CallbackQuery, text: str, kb: InlineKeyboardMarkup |
     await cb.answer()
 
 
-async def _show_menu(cb_or_msg, db: Database, chat_id: int) -> None:
+async def _show_menu(cb_or_msg, db: Database, chat_id: int, byod_enabled: bool | None = None) -> None:
     grp = await db.get_group(chat_id)
     if not grp:
         return
-    text, kb = _main_menu(chat_id, grp)
+    if byod_enabled is None:
+        from app.config import load_settings
+        byod_enabled = load_settings().byod_enabled
+    text, kb = _main_menu(chat_id, grp, byod_enabled=byod_enabled)
     if isinstance(cb_or_msg, CallbackQuery):
         await _edit_or_send(cb_or_msg, text, kb)
     else:
@@ -199,6 +205,12 @@ async def free_text(message: Message, bot: Bot, db: Database, cfg: Settings, key
         await db.set_dm_state(uid, "")
         await message.answer(f"model set to {m}.")
         await _show_menu(message, db, chat_id)
+    elif state.startswith("fbk:"):
+        from app.handlers.fallback import receive_fallback_input
+        await receive_fallback_input(message, bot, db, cfg, keys, uid, chat_id, state.split(":", 1)[1])
+    elif state == "byod":
+        from app.handlers.byod_dm import receive_dsn
+        await receive_dsn(message, bot, db, cfg, keys, uid, chat_id)
     elif state == "pers":
         await db.update_group(chat_id, personality=message.text.strip()[:300])
         await db.set_dm_state(uid, "")

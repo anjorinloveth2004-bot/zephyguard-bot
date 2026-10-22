@@ -179,6 +179,20 @@ async def on_text(message: Message, bot: Bot, db: Database, cfg: Settings, keys:
         if await try_faq(db, cfg, keys, message, grp):
             return
 
+    # 1d) trivia + federated battle answers (scoring only; never blocks normal chat)
+    if text and not text.startswith("/"):
+        try:
+            from app.handlers.v2 import check_trivia_answer
+            if await check_trivia_answer(message, db):
+                return
+        except Exception:
+            pass
+        try:
+            from app.handlers.federate import check_battle_answer
+            await check_battle_answer(message, bot, db)
+        except Exception:
+            pass
+
     who = message.from_user.first_name or "member"
     _remember(message.chat.id, who, text)
 

@@ -34,6 +34,7 @@ GROUP_FIELDS = {
     "reset_policy", "warn_limit", "warn_action", "allow_links", "welcome_text",
     "blacklist", "timezone", "personality", "provider", "model", "key_hint", "key_enc",
     "lock_soft", "board_message_id", "last_reset_key", "web_access",
+    "byod_dsn_enc", "byod_hint", "byod_status",
 }
 
 SCHEMA = [
@@ -139,7 +140,7 @@ SCHEMA = [
         PRIMARY KEY (chat_id, user_id)
     )""",
     """CREATE TABLE IF NOT EXISTS group_memory (
-        id {PK},
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
         chat_id BIGINT NOT NULL,
         kind TEXT NOT NULL,
         body TEXT NOT NULL,
@@ -153,7 +154,7 @@ SCHEMA = [
         PRIMARY KEY (chat_id, slug)
     )""",
     """CREATE TABLE IF NOT EXISTS faqs (
-        id {PK},
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
         chat_id BIGINT NOT NULL,
         question TEXT NOT NULL,
         answer TEXT NOT NULL DEFAULT '',
@@ -161,7 +162,7 @@ SCHEMA = [
         pinned INTEGER NOT NULL DEFAULT 0
     )""",
     """CREATE TABLE IF NOT EXISTS trivia_rounds (
-        id {PK},
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
         chat_id BIGINT NOT NULL,
         question TEXT NOT NULL,
         answer TEXT NOT NULL,
@@ -170,7 +171,7 @@ SCHEMA = [
         created_ts BIGINT NOT NULL DEFAULT 0
     )""",
     """CREATE TABLE IF NOT EXISTS capsules (
-        id {PK},
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
         chat_id BIGINT NOT NULL,
         user_id BIGINT NOT NULL,
         body TEXT NOT NULL,
@@ -183,7 +184,7 @@ SCHEMA = [
         PRIMARY KEY (fed_id, chat_id)
     )""",
     """CREATE TABLE IF NOT EXISTS shadow_flags (
-        id {PK},
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
         chat_id BIGINT NOT NULL,
         user_id BIGINT NOT NULL,
         text TEXT NOT NULL,
@@ -192,7 +193,7 @@ SCHEMA = [
         ts BIGINT NOT NULL DEFAULT 0
     )""",
     """CREATE TABLE IF NOT EXISTS appeals (
-        id {PK},
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
         chat_id BIGINT NOT NULL,
         user_id BIGINT NOT NULL,
         text TEXT NOT NULL,
@@ -213,7 +214,48 @@ SCHEMA = [
         calls INTEGER NOT NULL DEFAULT 0,
         PRIMARY KEY (chat_id, day, hour)
     )""",
+    """CREATE TABLE IF NOT EXISTS battles (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        kind TEXT NOT NULL DEFAULT 'trivia',
+        chat_a BIGINT NOT NULL,
+        chat_b BIGINT NOT NULL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'open',
+        qi INTEGER NOT NULL DEFAULT 0,
+        questions TEXT NOT NULL DEFAULT '[]',
+        score_a INTEGER NOT NULL DEFAULT 0,
+        score_b INTEGER NOT NULL DEFAULT 0,
+        q_deadline BIGINT NOT NULL DEFAULT 0,
+        deadline BIGINT NOT NULL DEFAULT 0,
+        created_ts BIGINT NOT NULL DEFAULT 0
+    )""",
+    """CREATE TABLE IF NOT EXISTS battle_claims (
+        battle_id BIGINT NOT NULL,
+        qi INTEGER NOT NULL,
+        chat_id BIGINT NOT NULL,
+        user_id BIGINT NOT NULL,
+        ts BIGINT NOT NULL DEFAULT 0,
+        PRIMARY KEY (battle_id, qi, chat_id)
+    )""",
+    """CREATE TABLE IF NOT EXISTS battle_votes (
+        battle_id BIGINT NOT NULL,
+        user_id BIGINT NOT NULL,
+        option TEXT NOT NULL,
+        PRIMARY KEY (battle_id, user_id)
+    )""",
+    """CREATE TABLE IF NOT EXISTS fed_invites (
+        code TEXT PRIMARY KEY,
+        fed_id TEXT NOT NULL,
+        from_chat BIGINT NOT NULL,
+        ts BIGINT NOT NULL DEFAULT 0
+    )""",
 ]
+
+
+def pg_compat(stmt: str, dialect: str) -> str:
+    """Postgres has no AUTOINCREMENT keyword; SERIAL is the equivalent. SQLite keeps it."""
+    if dialect == "postgresql":
+        return stmt.replace("INTEGER PRIMARY KEY AUTOINCREMENT", "SERIAL PRIMARY KEY")
+    return stmt
 
 
 GROUP_V2_COLUMNS = [
@@ -236,6 +278,9 @@ GROUP_V2_COLUMNS = [
     "ALTER TABLE groups ADD COLUMN IF NOT EXISTS fallback_model TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE groups ADD COLUMN IF NOT EXISTS fallback_key_enc TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE groups ADD COLUMN IF NOT EXISTS fallback_base_url TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE groups ADD COLUMN IF NOT EXISTS byod_dsn_enc TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE groups ADD COLUMN IF NOT EXISTS byod_hint TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE groups ADD COLUMN IF NOT EXISTS byod_status TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE groups ADD COLUMN IF NOT EXISTS custom_base_url TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE groups ADD COLUMN IF NOT EXISTS federation_id TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE groups ADD COLUMN IF NOT EXISTS byod_dsn_enc TEXT NOT NULL DEFAULT ''",
@@ -275,8 +320,13 @@ def _engine_args(url: str) -> tuple[str, dict[str, Any]]:
 
 
 class Database:
-    def __init__(self, url: str):
+    def __init__(self, url: str, pool_size: int | None = None, connect_timeout: float | None = None):
         target, connect_args = _engine_args(url)
+        extra: dict[str, Any] = {}
+        if pool_size is not None:
+            # Per-group BYOD pools: capped, short timeouts, never allowed to hang the bot.
+            extra.update(pool_size=pool_size, max_overflow=0, pool_timeout=connect_timeout or 5)
+            connect_args = {**connect_args, "timeout": connect_timeout or 5, "command_timeout": 10}
         if target.startswith("sqlite"):
             # Make sure the folder for the sqlite file exists (e.g. data/).
             path = target.split("///", 1)[-1]
@@ -284,14 +334,14 @@ class Database:
                 import os
                 os.makedirs(os.path.dirname(path), exist_ok=True)
         self.engine: AsyncEngine = create_async_engine(
-            target, pool_pre_ping=True, connect_args=connect_args
+            target, pool_pre_ping=True, connect_args=connect_args, **extra
         )
 
     async def init(self) -> None:
-        pk = "SERIAL PRIMARY KEY" if self.engine.dialect.name != "sqlite" else "INTEGER PRIMARY KEY AUTOINCREMENT"
         async with self.engine.begin() as conn:
+            dialect = self.engine.dialect.name
             for stmt in SCHEMA:
-                await conn.execute(text(stmt.replace("{PK}", pk)))
+                await conn.execute(text(pg_compat(stmt, dialect)))
         # V2 columns on `groups` and extra V2 table columns. Each runs in its own transaction
         # so one failure never aborts the rest. SQLite has no ADD COLUMN IF NOT EXISTS, so we
         # check PRAGMA table_info first.

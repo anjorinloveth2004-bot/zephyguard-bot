@@ -25,6 +25,9 @@ from app.handlers import group as group_handlers
 from app.handlers import v2 as v2_handlers
 from app.handlers import settings as settings_handlers
 from app.handlers import mod_v2 as mod_v2_handlers
+from app.handlers import federate as federate_handlers
+from app.handlers import fallback as fallback_handlers
+from app.handlers import byod_dm as byod_dm_handlers
 from app.scheduler import run_scheduler
 
 log = logging.getLogger("assistant-bot")
@@ -52,6 +55,9 @@ def build_dispatcher(db: Database, cfg: Settings, keys: KeyBox) -> Dispatcher:
     dp.include_router(v2_handlers.router)
     dp.include_router(settings_handlers.router)
     dp.include_router(mod_v2_handlers.router)
+    dp.include_router(federate_handlers.router)
+    dp.include_router(fallback_handlers.router)
+    dp.include_router(byod_dm_handlers.router)
     return dp
 
 
@@ -108,16 +114,8 @@ async def run() -> None:
             await bot.delete_webhook(drop_pending_updates=False)
             log.info("polling mode")
             polling = asyncio.create_task(dp.start_polling(bot, allowed_updates=allowed, handle_signals=False))
-            # render web services want an open port even in polling mode: keep a health endpoint up
-            health = web.Application()
-            health.router.add_get("/", lambda r: web.Response(text="zephy is up"))
-            hrunner = web.AppRunner(health)
-            await hrunner.setup()
-            await web.TCPSite(hrunner, "0.0.0.0", cfg.port).start()
-            log.info("health endpoint on port %s", cfg.port)
             await stop.wait()
             polling.cancel()
-            await hrunner.cleanup()
     finally:
         stop.set()
         scheduler_task.cancel()
