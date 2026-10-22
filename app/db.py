@@ -139,7 +139,7 @@ SCHEMA = [
         PRIMARY KEY (chat_id, user_id)
     )""",
     """CREATE TABLE IF NOT EXISTS group_memory (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        id {PK},
         chat_id BIGINT NOT NULL,
         kind TEXT NOT NULL,
         body TEXT NOT NULL,
@@ -153,7 +153,7 @@ SCHEMA = [
         PRIMARY KEY (chat_id, slug)
     )""",
     """CREATE TABLE IF NOT EXISTS faqs (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        id {PK},
         chat_id BIGINT NOT NULL,
         question TEXT NOT NULL,
         answer TEXT NOT NULL DEFAULT '',
@@ -161,7 +161,7 @@ SCHEMA = [
         pinned INTEGER NOT NULL DEFAULT 0
     )""",
     """CREATE TABLE IF NOT EXISTS trivia_rounds (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        id {PK},
         chat_id BIGINT NOT NULL,
         question TEXT NOT NULL,
         answer TEXT NOT NULL,
@@ -170,7 +170,7 @@ SCHEMA = [
         created_ts BIGINT NOT NULL DEFAULT 0
     )""",
     """CREATE TABLE IF NOT EXISTS capsules (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        id {PK},
         chat_id BIGINT NOT NULL,
         user_id BIGINT NOT NULL,
         body TEXT NOT NULL,
@@ -183,7 +183,7 @@ SCHEMA = [
         PRIMARY KEY (fed_id, chat_id)
     )""",
     """CREATE TABLE IF NOT EXISTS shadow_flags (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        id {PK},
         chat_id BIGINT NOT NULL,
         user_id BIGINT NOT NULL,
         text TEXT NOT NULL,
@@ -192,7 +192,7 @@ SCHEMA = [
         ts BIGINT NOT NULL DEFAULT 0
     )""",
     """CREATE TABLE IF NOT EXISTS appeals (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        id {PK},
         chat_id BIGINT NOT NULL,
         user_id BIGINT NOT NULL,
         text TEXT NOT NULL,
@@ -288,9 +288,10 @@ class Database:
         )
 
     async def init(self) -> None:
+        pk = "SERIAL PRIMARY KEY" if self.engine.dialect.name != "sqlite" else "INTEGER PRIMARY KEY AUTOINCREMENT"
         async with self.engine.begin() as conn:
             for stmt in SCHEMA:
-                await conn.execute(text(stmt))
+                await conn.execute(text(stmt.replace("{PK}", pk)))
         # V2 columns on `groups` and extra V2 table columns. Each runs in its own transaction
         # so one failure never aborts the rest. SQLite has no ADD COLUMN IF NOT EXISTS, so we
         # check PRAGMA table_info first.
