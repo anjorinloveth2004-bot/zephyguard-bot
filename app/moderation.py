@@ -46,12 +46,29 @@ async def punish(bot: Bot, chat_id: int, user_id: int, action: str) -> None:
         )
 
 
+def _log_cat_enabled(grp: dict, text: str) -> bool:
+    """Map a log line to its category (bans, mutes, warns, notes, settings, messages). Unknown lines always log."""
+    cats = {c.strip() for c in (grp.get("log_cats") or "").split(",") if c.strip()}
+    low = text.lower()
+    if low.startswith(("warn", "antiflood", "blocklist", "report")):
+        cat = "warns" if low.startswith("warn") else "messages"
+    elif low.startswith(("ban", "kick", "tban", "dban")) or "antiraid" in low:
+        cat = "bans"
+    elif low.startswith(("mute", "tmute")):
+        cat = "mutes"
+    elif low.startswith("note"):
+        cat = "notes"
+    else:
+        return True
+    return cat in cats
+
+
 async def log_event(bot: Bot, db: Database, chat_id: int, text: str) -> None:
     """Post to the group's log channel, if one is set. Never raises."""
     try:
         grp = await db.get_group(chat_id)
         target = int(grp.get("log_chat_id") or 0) if grp else 0
-        if target:
+        if target and _log_cat_enabled(grp, text):
             await bot.send_message(target, f"📝 {text}")
     except Exception as exc:
         log.info("log channel post failed for %s: %s", chat_id, exc)
@@ -86,6 +103,8 @@ async def moderate_message(
     """Run automatic checks on a group message. Returns True if the message was removed."""
     text = msg.text or msg.caption or ""
     if is_admin or msg.from_user is None:
+        return False
+    if await db.one("SELECT user_id FROM approved_users WHERE chat_id = :c AND user_id = :u", c=msg.chat.id, u=msg.from_user.id):
         return False
     uid = msg.from_user.id
     name = msg.from_user.first_name or "member"

@@ -30,6 +30,7 @@ from app.handlers import fallback as fallback_handlers
 from app.handlers import byod_dm as byod_dm_handlers
 from app.handlers import rose as rose_handlers
 from app.handlers import rose_b as rose_b_handlers
+from app.handlers import rose_c as rose_c_handlers
 from app.scheduler import run_scheduler
 
 log = logging.getLogger("assistant-bot")
@@ -82,6 +83,62 @@ GROUP_COMMANDS = [
     BotCommand(command="lang", description="bot language (admins)"),
     BotCommand(command="export", description="export settings to dm (admins)"),
     BotCommand(command="import", description="import settings (admins)"),
+    BotCommand(command="goodbye", description="goodbye on/off (admins)"),
+    BotCommand(command="setgoodbye", description="set goodbye text (admins)"),
+    BotCommand(command="resetgoodbye", description="reset goodbye text (admins)"),
+    BotCommand(command="cleangoodbye", description="clean last goodbye (admins)"),
+    BotCommand(command="stopall", description="remove all filters (admins)"),
+    BotCommand(command="disableadmin", description="disable admin commands (admins)"),
+    BotCommand(command="disableall", description="disable member commands (admins)"),
+    BotCommand(command="log", description="log category on (admins)"),
+    BotCommand(command="nolog", description="log category off (admins)"),
+    BotCommand(command="logcategories", description="log categories"),
+    BotCommand(command="clearall", description="delete all notes (admins)"),
+    BotCommand(command="privatenotes", description="notes to dm (admins)"),
+    BotCommand(command="runs", description="a random reply"),
+    BotCommand(command="id", description="show ids"),
+    BotCommand(command="info", description="user info"),
+    BotCommand(command="limits", description="bot limits"),
+    BotCommand(command="markdownhelp", description="markdown and fillings help"),
+    BotCommand(command="purgey", description="purge last n messages (admins)"),
+    BotCommand(command="purgeconfirm", description="purge confirmation (admins)"),
+    BotCommand(command="purgefrom", description="mark purge start (admins)"),
+    BotCommand(command="purgeto", description="purge to marked message (admins)"),
+    BotCommand(command="pinloud", description="pins notify (admins)"),
+    BotCommand(command="pinmute", description="pins silent (admins)"),
+    BotCommand(command="unpinall", description="unpin all (admins)"),
+    BotCommand(command="antichannelpin", description="undo channel pins (admins)"),
+    BotCommand(command="channelsettings", description="pin and channel settings (admins)"),
+    BotCommand(command="dbanned", description="ban deleted accounts (admins)"),
+    BotCommand(command="setrules", description="set rules (admins)"),
+    BotCommand(command="resetrules", description="clear rules (admins)"),
+    BotCommand(command="privaterules", description="rules to dm (admins)"),
+    BotCommand(command="setrulesbutton", description="rules button text (admins)"),
+    BotCommand(command="resetrulesbutton", description="remove rules button (admins)"),
+    BotCommand(command="settopic", description="default topic (admins)"),
+    BotCommand(command="gettopic", description="default topic"),
+    BotCommand(command="newtopic", description="create topic (admins)"),
+    BotCommand(command="renametopic", description="rename topic (admins)"),
+    BotCommand(command="closetopic", description="close topic (admins)"),
+    BotCommand(command="reopentopic", description="reopen topic (admins)"),
+    BotCommand(command="deletetopic", description="delete topic (admins)"),
+    BotCommand(command="swarn", description="silent warn (admins)"),
+    BotCommand(command="rwarn", description="remove a warning (admins)"),
+    BotCommand(command="resetwarns", description="reset a user warns (admins)"),
+    BotCommand(command="resetallwarns", description="reset all warns (admins)"),
+    BotCommand(command="warns", description="warnings count"),
+    BotCommand(command="setwarnaction", description="warn action (admins)"),
+    BotCommand(command="warnlimit", description="warn limit (admins)"),
+    BotCommand(command="warntime", description="warn expiry (admins)"),
+    BotCommand(command="cleanservice", description="clean service messages (admins)"),
+    BotCommand(command="keepservice", description="keep service messages (admins)"),
+    BotCommand(command="cleanservicetypes", description="cleaned service types"),
+    BotCommand(command="cleancommand", description="clean a command (admins)"),
+    BotCommand(command="keepcommand", description="keep a command (admins)"),
+    BotCommand(command="cleancommandtypes", description="cleaned commands"),
+    BotCommand(command="reset", description="reset group (admins)"),
+    BotCommand(command="anonadmin", description="anonymous admin (admins)"),
+    BotCommand(command="adminerror", description="admin error notices (admins)"),
 ]
 
 
@@ -100,7 +157,11 @@ def build_dispatcher(db: Database, cfg: Settings, keys: KeyBox) -> Dispatcher:
     dp.include_router(rose_handlers.dm_router)
     dp.include_router(rose_handlers.router)
     dp.include_router(rose_b_handlers.router)
-    rose_handlers.router.message.middleware(rose_handlers.DisabledCommands())
+    dp.include_router(rose_c_handlers.router)
+    dp.include_router(rose_c_handlers.dm_router)
+    # disabled commands and clean-service/command rules apply to every group message, all routers
+    dp.message.outer_middleware(rose_handlers.DisabledCommands())
+    dp.message.outer_middleware(rose_c_handlers.CleanMiddleware())
     return dp
 
 

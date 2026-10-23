@@ -120,9 +120,13 @@ async def on_join(message: Message, bot: Bot, db: Database, cfg: Settings) -> No
 
 
 @router.message(F.left_chat_member)
-async def on_leave(message: Message, db: Database) -> None:
-    # Kept quiet on purpose; hook for a goodbye message later.
-    return
+async def on_leave(message: Message, bot: Bot, db: Database) -> None:
+    # v2.2b: goodbye message when enabled (off by default). Never blocks the bot on failure.
+    from app.handlers.rose_c import send_goodbye
+    try:
+        await send_goodbye(bot, db, message.chat.id, message.left_chat_member, message.chat.title or "")
+    except Exception as exc:
+        log.info("goodbye failed in %s: %s", message.chat.id, exc)
 
 
 @router.chat_member()
@@ -435,14 +439,8 @@ async def award_cmd(message: Message, command: CommandObject, bot: Bot, db: Data
 
 # ------------------------------------------------------------------ misc
 @router.message(Command("rules"))
-async def rules(message: Message, db: Database) -> None:
-    grp = await db.get_group(message.chat.id)
-    await message.reply(f"group rules: keep it civil, no spam, no scams. ai help: /ask or @mention me. (group: {grp['title'] if grp else ''})")
+async def rules(message: Message, db: Database, bot: Bot) -> None:
+    from app.handlers.rose_c import rules_reply
+    await rules_reply(message, bot, db)
 
 
-@router.message(Command("help"))
-async def help_cmd(message: Message) -> None:
-    await message.reply(
-        "commands: /ask, /summary, /points, /lb, /rules, /settings (admins, opens dm)\n"
-        "admins: /warn, /ban, /kick, /mute, /purge (reply to a message), /award N reason (reply)"
-    )

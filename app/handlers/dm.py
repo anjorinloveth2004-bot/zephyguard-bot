@@ -196,6 +196,11 @@ async def key_actions(cb: CallbackQuery, bot: Bot, db: Database, cfg: Settings, 
         await _show_menu(cb, db, chat_id)
 
 
+def _privacy_kb():
+    from app.handlers.rose_c import _privacy_kb as kb
+    return kb()
+
+
 @router.message(Command("privacy"))
 async def privacy(message: Message) -> None:
     await message.answer(
@@ -203,7 +208,8 @@ async def privacy(message: Message) -> None:
         "what i store: group ids and titles, admin ids, settings you choose, points/warns, and api keys admins connect (encrypted, never shown).\n"
         "what i read: messages in groups i'm a member of, only to answer /ask, summaries, moderation and points when triggered. i don't keep message history.\n"
         "what i never do: sell data, show keys, or dm your members first.\n\n"
-        "questions: contact the bot owner (super admin). group admins can disconnect their group anytime with /disconnect or by removing me."
+        "questions: contact the bot owner (super admin). group admins can disconnect their group anytime with /disconnect or by removing me.",
+        reply_markup=_privacy_kb(),
     )
 
 

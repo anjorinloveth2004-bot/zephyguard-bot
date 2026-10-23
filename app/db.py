@@ -537,6 +537,8 @@ GROUP_FIELDS |= {re.match(r"ALTER TABLE groups ADD COLUMN IF NOT EXISTS (\w+)", 
 
 # v2.2b: captcha depth, ban/clean/service/goodbye/log/notes/privacy/purge/pin/rules/topic/warn settings.
 V22B_COLUMNS = [
+    "ALTER TABLE groups ADD COLUMN IF NOT EXISTS anon_admin INTEGER NOT NULL DEFAULT 1",
+    "ALTER TABLE groups ADD COLUMN IF NOT EXISTS admin_error_on INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE groups ADD COLUMN IF NOT EXISTS captcha_mode TEXT NOT NULL DEFAULT 'button'",
     "ALTER TABLE groups ADD COLUMN IF NOT EXISTS captcha_kick_secs INTEGER NOT NULL DEFAULT 300",
     "ALTER TABLE groups ADD COLUMN IF NOT EXISTS captcha_text TEXT NOT NULL DEFAULT ''",
