@@ -29,6 +29,7 @@ from app.handlers import federate as federate_handlers
 from app.handlers import fallback as fallback_handlers
 from app.handlers import byod_dm as byod_dm_handlers
 from app.handlers import rose as rose_handlers
+from app.handlers import rose_b as rose_b_handlers
 from app.scheduler import run_scheduler
 
 log = logging.getLogger("assistant-bot")
@@ -98,6 +99,7 @@ def build_dispatcher(db: Database, cfg: Settings, keys: KeyBox) -> Dispatcher:
     dp.include_router(byod_dm_handlers.router)
     dp.include_router(rose_handlers.dm_router)
     dp.include_router(rose_handlers.router)
+    dp.include_router(rose_b_handlers.router)
     rose_handlers.router.message.middleware(rose_handlers.DisabledCommands())
     return dp
 

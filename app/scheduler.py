@@ -134,6 +134,9 @@ async def run_scheduler(bot: Bot, db: Database, stop: asyncio.Event) -> None:
                 except Exception as exc:
                     log.warning("lock flip failed for %s: %s", lock["chat_id"], exc)
             await _expire_captchas(bot, db)
+            from app.handlers.rose_b import expire_timed_actions, expire_unsolved_captchas
+            await expire_timed_actions(bot, db)
+            await expire_unsolved_captchas(bot, db)
         except Exception as exc:
             log.exception("scheduler tick failed: %s", exc)
         try:
