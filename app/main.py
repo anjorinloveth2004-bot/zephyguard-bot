@@ -95,7 +95,7 @@ async def run() -> None:
         for admin_id in cfg.super_admin_ids:
             try:
                 await bot.set_my_commands(
-                    ADMIN_COMMANDS + PRIVATE_COMMANDS, scope=BotCommandScopeChat(chat_id=admin_id, type="private")
+                    ADMIN_COMMANDS + PRIVATE_COMMANDS, scope=BotCommandScopeChat(chat_id=admin_id, type="chat")
                 )
             except TelegramBadRequest as exc:
                 log.warning("could not set admin commands for %s: %s", admin_id, exc)
