@@ -344,13 +344,13 @@ class Database:
     async def init(self) -> None:
         async with self.engine.begin() as conn:
             dialect = self.engine.dialect.name
-            for stmt in SCHEMA:
+            for stmt in SCHEMA + V22_SCHEMA:
                 await conn.execute(text(pg_compat(stmt, dialect)))
         # V2 columns on `groups` and extra V2 table columns. Each runs in its own transaction
         # so one failure never aborts the rest. SQLite has no ADD COLUMN IF NOT EXISTS, so we
         # check PRAGMA table_info first.
         is_sqlite = self.engine.dialect.name == "sqlite"
-        for col_sql in GROUP_V2_COLUMNS + V2_TABLE_COLUMNS:
+        for col_sql in GROUP_V2_COLUMNS + V2_TABLE_COLUMNS + V22_COLUMNS:
             try:
                 if is_sqlite:
                     m = re.match(r"ALTER TABLE (\w+) ADD COLUMN IF NOT EXISTS (\w+) (.*)", col_sql)
@@ -494,4 +494,44 @@ V2_TABLE_COLUMNS = [
 ]
 
 GROUP_FIELDS |= {re.match(r"ALTER TABLE groups ADD COLUMN IF NOT EXISTS (\w+)", c).group(1) for c in GROUP_V2_COLUMNS}
+
+# ---- v2.2 (Rose-parity moderation, notes, filters, pins, reports, languages) ----
+V22_COLUMNS = [
+    "ALTER TABLE groups ADD COLUMN IF NOT EXISTS antiflood_limit INTEGER NOT NULL DEFAULT 6",
+    "ALTER TABLE groups ADD COLUMN IF NOT EXISTS antiflood_action TEXT NOT NULL DEFAULT 'warn'",
+    "ALTER TABLE groups ADD COLUMN IF NOT EXISTS antiraid_on INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE groups ADD COLUMN IF NOT EXISTS antiraid_threshold INTEGER NOT NULL DEFAULT 5",
+    "ALTER TABLE groups ADD COLUMN IF NOT EXISTS antiraid_window INTEGER NOT NULL DEFAULT 60",
+    "ALTER TABLE groups ADD COLUMN IF NOT EXISTS raid_until_ts BIGINT NOT NULL DEFAULT 0",
+    "ALTER TABLE groups ADD COLUMN IF NOT EXISTS approval_on INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE groups ADD COLUMN IF NOT EXISTS antipin_on INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE groups ADD COLUMN IF NOT EXISTS reports_on INTEGER NOT NULL DEFAULT 1",
+    "ALTER TABLE groups ADD COLUMN IF NOT EXISTS log_chat_id BIGINT NOT NULL DEFAULT 0",
+    "ALTER TABLE groups ADD COLUMN IF NOT EXISTS lang TEXT NOT NULL DEFAULT 'en'",
+    "ALTER TABLE groups ADD COLUMN IF NOT EXISTS disabled_cmds TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE groups ADD COLUMN IF NOT EXISTS blocklist_action TEXT NOT NULL DEFAULT 'warn'",
+]
+
+V22_SCHEMA = [
+    """CREATE TABLE IF NOT EXISTS chat_filters (
+        chat_id BIGINT NOT NULL,
+        keyword TEXT NOT NULL,
+        reply TEXT NOT NULL DEFAULT '',
+        PRIMARY KEY (chat_id, keyword)
+    )""",
+    """CREATE TABLE IF NOT EXISTS chat_notes (
+        chat_id BIGINT NOT NULL,
+        name TEXT NOT NULL,
+        body TEXT NOT NULL DEFAULT '',
+        PRIMARY KEY (chat_id, name)
+    )""",
+    """CREATE TABLE IF NOT EXISTS pending_joins (
+        chat_id BIGINT NOT NULL,
+        user_id BIGINT NOT NULL,
+        created_ts BIGINT NOT NULL DEFAULT 0,
+        PRIMARY KEY (chat_id, user_id)
+    )""",
+]
+
+GROUP_FIELDS |= {re.match(r"ALTER TABLE groups ADD COLUMN IF NOT EXISTS (\w+)", c).group(1) for c in V22_COLUMNS}
 

@@ -24,12 +24,13 @@ FLOOD_WINDOW_S = 5
 FLOOD_MAX_MSGS = 6
 
 
-def is_flooding(chat_id: int, user_id: int) -> bool:
-    now = time.time()
+def is_flooding(chat_id: int, user_id: int, limit: int = FLOOD_MAX_MSGS, now: float | None = None) -> bool:
+    """True when the user sent more than `limit` messages inside FLOOD_WINDOW_S seconds."""
+    now = time.time() if now is None else now
     q = _flood[chat_id][user_id]
     q.append(now)
     recent = [t for t in q if now - t <= FLOOD_WINDOW_S]
-    return len(recent) > FLOOD_MAX_MSGS
+    return len(recent) > limit
 
 
 async def punish(bot: Bot, chat_id: int, user_id: int, action: str) -> None:
@@ -43,6 +44,17 @@ async def punish(bot: Bot, chat_id: int, user_id: int, action: str) -> None:
         await bot.restrict_chat_member(
             chat_id, user_id, ChatPermissions(can_send_messages=False), until_date=int(time.time()) + 3600
         )
+
+
+async def log_event(bot: Bot, db: Database, chat_id: int, text: str) -> None:
+    """Post to the group's log channel, if one is set. Never raises."""
+    try:
+        grp = await db.get_group(chat_id)
+        target = int(grp.get("log_chat_id") or 0) if grp else 0
+        if target:
+            await bot.send_message(target, f"📝 {text}")
+    except Exception as exc:
+        log.info("log channel post failed for %s: %s", chat_id, exc)
 
 
 async def add_warn(db: Database, chat_id: int, user_id: int) -> int:
@@ -83,9 +95,26 @@ async def moderate_message(
         return False
 
     reason = None
-    if is_flooding(cid, uid):
-        reason = "flooding"
-    elif text and (hit := blacklist_hit(text, grp["blacklist"])):
+    flood_limit = int(grp.get("antiflood_limit") or 0)
+    if flood_limit and is_flooding(cid, uid, flood_limit):
+        from app.i18n import t
+        action = grp.get("antiflood_action") or "warn"
+        try:
+            await msg.delete()
+        except Exception:
+            pass
+        if action == "warn":
+            notice = await warn_user(bot, db, cid, uid, name, "flooding")
+        else:
+            await punish(bot, cid, uid, action)
+            notice = t(grp.get("lang"), "flood", name=name, action=action)
+        await log_event(bot, db, cid, f"antiflood {action}: {name}")
+        try:
+            await bot.send_message(cid, notice, message_thread_id=msg.message_thread_id if msg.is_topic_message else None)
+        except Exception:
+            pass
+        return True
+    if text and (hit := blacklist_hit(text, grp["blacklist"])):
         reason = f"blacklisted word ({hit})"
     elif text and (not grp["allow_links"] or _soft_locked(grp)) and has_link(text):
         reason = "links not allowed here"
@@ -101,7 +130,18 @@ async def moderate_message(
         await msg.delete()
     except Exception as exc:  # message may already be gone or bot lacks rights
         log.info("could not delete message in %s: %s", cid, exc)
+    if reason.startswith("blacklisted word") and (grp.get("blocklist_action") or "warn") != "warn":
+        blk = grp.get("blocklist_action")
+        if blk in ("mute", "kick", "ban"):
+            await punish(bot, cid, uid, blk)
+        await log_event(bot, db, cid, f"blocklist {blk}: {name}")
+        try:
+            await bot.send_message(cid, f"🚫 {name}: {reason}. action: {blk}.")
+        except Exception:
+            pass
+        return True
     notice = await warn_user(bot, db, cid, uid, name, reason)
+    await log_event(bot, db, cid, f"warn {name}: {reason}")
     try:
         await bot.send_message(cid, notice)
     except Exception:

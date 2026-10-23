@@ -28,6 +28,7 @@ from app.handlers import mod_v2 as mod_v2_handlers
 from app.handlers import federate as federate_handlers
 from app.handlers import fallback as fallback_handlers
 from app.handlers import byod_dm as byod_dm_handlers
+from app.handlers import rose as rose_handlers
 from app.scheduler import run_scheduler
 
 log = logging.getLogger("assistant-bot")
@@ -57,6 +58,29 @@ GROUP_COMMANDS = [
     BotCommand(command="rules", description="group rules"),
     BotCommand(command="help", description="all commands"),
     BotCommand(command="privacy", description="privacy policy"),
+    BotCommand(command="antiflood", description="flood limit (admins)"),
+    BotCommand(command="antiraid", description="raid protection (admins)"),
+    BotCommand(command="approval", description="join approval (admins)"),
+    BotCommand(command="blocklist", description="blocked words (admins)"),
+    BotCommand(command="filter", description="auto-reply filter (admins)"),
+    BotCommand(command="filters", description="list filters"),
+    BotCommand(command="stop", description="remove a filter (admins)"),
+    BotCommand(command="save", description="save a note (admins)"),
+    BotCommand(command="notes", description="list notes"),
+    BotCommand(command="get", description="get a note"),
+    BotCommand(command="pin", description="pin the replied message (admins)"),
+    BotCommand(command="unpin", description="unpin (admins)"),
+    BotCommand(command="pinned", description="show pinned message"),
+    BotCommand(command="antipin", description="auto-unpin member pins (admins)"),
+    BotCommand(command="report", description="report a message to admins"),
+    BotCommand(command="reports", description="reports on/off (admins)"),
+    BotCommand(command="logchannel", description="log channel (admins)"),
+    BotCommand(command="disable", description="disable a command (admins)"),
+    BotCommand(command="enable", description="enable a command (admins)"),
+    BotCommand(command="disabled", description="list disabled commands"),
+    BotCommand(command="lang", description="bot language (admins)"),
+    BotCommand(command="export", description="export settings to dm (admins)"),
+    BotCommand(command="import", description="import settings (admins)"),
 ]
 
 
@@ -72,6 +96,9 @@ def build_dispatcher(db: Database, cfg: Settings, keys: KeyBox) -> Dispatcher:
     dp.include_router(federate_handlers.router)
     dp.include_router(fallback_handlers.router)
     dp.include_router(byod_dm_handlers.router)
+    dp.include_router(rose_handlers.dm_router)
+    dp.include_router(rose_handlers.router)
+    rose_handlers.router.message.middleware(rose_handlers.DisabledCommands())
     return dp
 
 

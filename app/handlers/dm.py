@@ -57,9 +57,10 @@ def _main_menu(chat_id: int, grp: dict, byod_enabled: bool = False) -> tuple[str
     kb.button(text="🔒 scheduled lock", callback_data=f"lk:{chat_id}")
     kb.button(text="🏆 points board", callback_data=f"pts:{chat_id}")
     kb.button(text="👮 refresh admins", callback_data=f"adm:{chat_id}")
+    kb.button(text="🛡 moderation tools", callback_data=f"rz:{chat_id}")
     if byod_enabled:
         kb.button(text="🗄 bring ur own db", callback_data=f"byod:{chat_id}")
-    kb.adjust(1, 1, 1, 2, 1, 1, 1, 1, 1)
+    kb.adjust(1, 1, 1, 2, 1, 1, 1, 1, 1, 1)
     text = (
         f"⚙️ settings: {grp['title'] or chat_id}\n\n"
         f"ai key: {('connected ' + grp['provider'] + ' (' + grp['key_hint'] + ')') if has_key else 'not connected (free tier if available)'}\n"

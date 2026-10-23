@@ -16,7 +16,7 @@ from app.config import Settings
 from app.crypto import KeyBox
 from app.db import Database
 from app.llm import LLMError, complete
-from app.moderation import moderate_message, pass_captcha, start_captcha, warn_user
+from app.moderation import log_event, moderate_message, pass_captcha, start_captcha, warn_user
 from app.websearch import format_sources, search
 from app.services import (
     award,
@@ -87,10 +87,27 @@ async def settings_redirect(message: Message, bot: Bot, db: Database, cfg: Setti
 @router.message(F.new_chat_members)
 async def on_join(message: Message, bot: Bot, db: Database, cfg: Settings) -> None:
     grp = await _ensure_group(db, message.chat)
+    from app.handlers.rose import note_join_and_check_raid, start_approval
+    from app.i18n import t as _t
+    thread = message.message_thread_id if message.is_topic_message else None
     for u in message.new_chat_members:
         if u.is_bot:
             continue
         name = u.first_name or "friend"
+        # v2.2 anti-raid: a burst of joins puts new members behind captcha/approval for a while
+        raid_new, raid_active = await note_join_and_check_raid(bot, db, grp, message.chat.id)
+        if raid_new:
+            await bot.send_message(
+                message.chat.id, _t(grp.get("lang"), "raid", n=int(grp.get("antiraid_threshold") or 5)),
+                message_thread_id=thread,
+            )
+            await log_event(bot, db, message.chat.id, f"antiraid triggered in {message.chat.title or message.chat.id}")
+        if grp.get("approval_on") or raid_active:
+            try:
+                await start_approval(bot, db, grp, message.chat.id, u.id, name, thread)
+            except Exception as exc:
+                log.info("approval failed in %s: %s", message.chat.id, exc)
+            continue
         if grp["captcha_enabled"]:
             try:
                 await start_captcha(bot, db, message.chat.id, u.id, name)
@@ -149,6 +166,20 @@ async def on_text(message: Message, bot: Bot, db: Database, cfg: Settings, keys:
 
     if grp["banned"]:
         return
+
+    # 0) v2.2 reports: /report or @admins as a reply (admins are exempt from being reported)
+    low = text.strip().lower()
+    if message.reply_to_message and (low.startswith("@admin") or low == "/report"):
+        if not is_admin:
+            from app.handlers.rose import handle_report
+            if await handle_report(message, bot, db):
+                return
+
+    # 0b) v2.2 notes (#name) and auto-reply filters, for normal chat
+    if text and not text.startswith("/"):
+        from app.handlers.rose import send_note_or_filter
+        if await send_note_or_filter(message, db, text.strip()):
+            return
 
     # 1) moderation first (spam, blacklist, links, flood, AI mod)
     if await moderate_message(bot, db, cfg, keys, message, grp, is_admin):
