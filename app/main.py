@@ -226,9 +226,18 @@ async def run() -> None:
             # Long polling (local, VPS, or any host without a public URL).
             await bot.delete_webhook(drop_pending_updates=False)
             log.info("polling mode")
+            # web hosts like Render require an open port: serve /healthz alongside polling
+            health = web.Application()
+            health.router.add_get("/healthz", lambda r: web.json_response({"ok": True}))
+            health.router.add_get("/", lambda r: web.json_response({"ok": True, "bot": "zephy"}))
+            hrunner = web.AppRunner(health)
+            await hrunner.setup()
+            await web.TCPSite(hrunner, "0.0.0.0", cfg.port).start()
+            log.info("health server on port %s", cfg.port)
             polling = asyncio.create_task(dp.start_polling(bot, allowed_updates=allowed, handle_signals=False))
             await stop.wait()
             polling.cancel()
+            await hrunner.cleanup()
     finally:
         stop.set()
         scheduler_task.cancel()
