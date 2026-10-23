@@ -58,14 +58,18 @@ def mask_key(key: str) -> str:
 
 KEY_PATTERNS = [
     re.compile(r"sk-[A-Za-z0-9_\-]{16,}"),   # OpenAI-style
-    re.compile(r"AIza[0-9A-Za-z_\-]{30,}"),  # Google/Gemini-style (classic)
-    re.compile(r"AQ\.[A-Za-z0-9_\-]{20,}"),  # Google/Gemini-style (new format)
+    re.compile(r"AIza[0-9A-Za-z_.\-]{30,}"),  # Google/Gemini-style (classic)
+    re.compile(r"AQ\.[A-Za-z0-9_.\-]{20,}"),  # Google/Gemini-style (new format)
 ]
 
 
 def looks_like_key(text: str) -> bool:
-    t = text.strip()
-    return any(p.fullmatch(t) for p in KEY_PATTERNS)
+    t = text.strip().strip("`" + '"') 
+    t = re.sub(r"^[Bb]earer\s+", "", t).strip()
+    # accept the key even if the paste carried stray punctuation around it
+    m = re.search(r"(sk-[A-Za-z0-9_\-.]{16,}|AIza[0-9A-Za-z_.\-]{30,}|AQ\.[A-Za-z0-9_.\-]{20,})", t)
+    return bool(m) and any(p.fullmatch(m.group(1).rstrip(".,"))
+                            or p.fullmatch(m.group(1)) for p in KEY_PATTERNS)
 
 
 # ---------------------------------------------------------------- points

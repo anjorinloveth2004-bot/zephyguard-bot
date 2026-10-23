@@ -52,9 +52,19 @@ async def complete(target: LLMTarget, system: str, user: str, max_tokens: int = 
 async def validate_key(provider: str, api_key: str, model: str, base_url: str = "https://api.openai.com/v1") -> None:
     """Tiny test call used when an admin connects a key. Raises LLMError if the key is bad."""
     target = LLMTarget(provider=provider, model=model, api_key=api_key, base_url=base_url)
-    out = await complete(target, "reply with the single word ok", "ping", max_tokens=5, timeout=20)
-    if not out:
-        raise LLMError("provider returned an empty response")
+    for attempt in range(2):
+        try:
+            out = await complete(target, "reply with the single word ok", "ping", max_tokens=5, timeout=20)
+            if not out:
+                raise LLMError("provider returned an empty response")
+            return
+        except LLMError as exc:
+            # one short retry: transient 5xx / overload should not fail the key
+            if attempt == 0 and any(c in str(exc) for c in ("500", "502", "503", "504", "busy", "overloaded")):
+                import asyncio as _a
+                await _a.sleep(3)
+                continue
+            raise
 
 
 async def _openai_compat(client: httpx.AsyncClient, t: LLMTarget, system: str, user: str, max_tokens: int) -> str:
@@ -118,4 +128,6 @@ def _provider_error(r: httpx.Response) -> str:
         return "the provider rate limit or quota was hit"
     if code == 404:
         return "model or endpoint not found (check the model name)"
+    if code in (500, 502, 503, 504):
+        return f"provider is busy or overloaded right now (HTTP {code}). this is on the provider, not the key. try again in a few minutes"
     return f"provider error (HTTP {code})"

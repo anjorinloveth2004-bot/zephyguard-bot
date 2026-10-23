@@ -36,6 +36,17 @@ PRIVATE_COMMANDS = [
     BotCommand(command="start", description="open the bot / manage your groups"),
     BotCommand(command="settings", description="group settings (dm only)"),
 ]
+ADMIN_COMMANDS = [
+    BotCommand(command="stats", description="usage across all groups (super admin)"),
+    BotCommand(command="groups", description="list connected groups (super admin)"),
+    BotCommand(command="heat", description="usage heat map (super admin)"),
+    BotCommand(command="health", description="system health (super admin)"),
+    BotCommand(command="disconnect", description="disconnect a group (super admin)"),
+    BotCommand(command="banGroup", description="ban a group (super admin)"),
+    BotCommand(command="unbanGroup", description="unban a group (super admin)"),
+    BotCommand(command="broadcast", description="broadcast to all groups (super admin)"),
+]
+
 GROUP_COMMANDS = [
     BotCommand(command="ask", description="ask the ai a question"),
     BotCommand(command="summary", description="summarize recent chat"),
@@ -76,6 +87,15 @@ async def run() -> None:
         from aiogram.types import BotCommandScopeAllPrivateChats, BotCommandScopeAllGroupChats
         await bot.set_my_commands(PRIVATE_COMMANDS, scope=BotCommandScopeAllPrivateChats())
         await bot.set_my_commands(GROUP_COMMANDS, scope=BotCommandScopeAllGroupChats())
+        # super admins get the admin menu in their private chat on top of the normal one
+        from aiogram.types import BotCommandScopeChat
+        for admin_id in cfg.super_admin_ids:
+            try:
+                await bot.set_my_commands(
+                    ADMIN_COMMANDS + PRIVATE_COMMANDS, scope=BotCommandScopeChat(chat_id=admin_id, type="private")
+                )
+            except TelegramBadRequest as exc:
+                log.warning("could not set admin commands for %s: %s", admin_id, exc)
     except TelegramBadRequest as exc:
         log.warning("could not set bot commands: %s", exc)
 
