@@ -175,10 +175,20 @@ async def key_actions(cb: CallbackQuery, bot: Bot, db: Database, cfg: Settings, 
     elif action.startswith("prov:"):
         provider = action.split(":", 1)[1]
         await db.set_dm_state(cb.from_user.id, f"key:{provider}", chat_id)
+        where = (
+            "get one at platform.openai.com → api keys (free accounts work, you just need billing or a free grant)"
+            if provider == "openai"
+            else "get one at aistudio.google.com → get api key (free tier is fine)"
+        )
         await _edit_or_send(
             cb,
-            f"send your {provider} api key here in this chat (not in the group).\n"
-            "i'll test it, encrypt it, and delete your message right away. only the masked key is shown afterwards.",
+            f"🔑 connect your {provider} key\n\n"
+            f"1. {where}\n"
+            "2. copy the key\n"
+            "3. paste the key right here in this chat (not in the group)\n\n"
+            "i'll test it, encrypt it, and delete your message instantly. only a masked hint (like AIza...9f2x) is ever shown. "
+            "nothing is stored in plain text.\n\n"
+            "send /cancel to stop.",
         )
     elif action == "disc":
         await db.update_group(chat_id, key_enc="", key_hint="", provider="", model="")
@@ -225,7 +235,7 @@ async def free_text(message: Message, bot: Bot, db: Database, cfg: Settings, key
     """Handles the next free-text answer for whatever the admin is in the middle of setting up."""
     uid = message.from_user.id
     # any new command cancels a half-finished setup instead of being read as its input
-    if (message.text or "").startswith("/") and not (message.text or "").startswith("/start"):
+    if (message.text or "").startswith("/"):
         st = await db.get_dm_state(uid)
         if st and st["state"]:
             await db.set_dm_state(uid, "")
