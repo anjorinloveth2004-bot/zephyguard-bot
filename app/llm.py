@@ -54,7 +54,7 @@ async def validate_key(provider: str, api_key: str, model: str, base_url: str = 
     target = LLMTarget(provider=provider, model=model, api_key=api_key, base_url=base_url)
     for attempt in range(2):
         try:
-            out = await complete(target, "reply with the single word ok", "ping", max_tokens=5, timeout=20)
+            out = await complete(target, "reply with the single word ok, no thinking out loud", "ping", max_tokens=400, timeout=30)
             if not out:
                 raise LLMError("provider returned an empty response")
             return
@@ -112,11 +112,18 @@ async def _gemini(client: httpx.AsyncClient, t: LLMTarget, system: str, user: st
     if r.status_code != 200:
         raise LLMError(_provider_error(r))
     data = r.json()
-    try:
-        parts = data["candidates"][0]["content"]["parts"]
-        return "".join(p.get("text", "") for p in parts).strip()
-    except (KeyError, IndexError, TypeError) as exc:
-        raise LLMError("unexpected response shape from Gemini") from exc
+    cands = data.get("candidates") or []
+    if not cands:
+        block = (data.get("promptFeedback") or {}).get("blockReason")
+        raise LLMError(f"gemini returned no candidates" + (f" (blocked: {block})" if block else ""))
+    parts = ((cands[0].get("content") or {}).get("parts")) or []
+    text = "".join(p.get("text", "") for p in parts).strip()
+    if not text:
+        reason = cands[0].get("finishReason") or "no text in response"
+        if reason == "MAX_TOKENS":
+            reason = "the model used its whole token budget thinking and never answered, retry"
+        raise LLMError(f"gemini returned no text (finishReason: {reason})")
+    return text
 
 
 def _provider_error(r: httpx.Response) -> str:
