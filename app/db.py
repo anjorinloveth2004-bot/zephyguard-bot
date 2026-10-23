@@ -38,6 +38,10 @@ GROUP_FIELDS = {
 }
 
 SCHEMA = [
+    """CREATE TABLE IF NOT EXISTS bot_meta (
+        key TEXT PRIMARY KEY,
+        value TEXT
+    )""",
     """CREATE TABLE IF NOT EXISTS groups (
         chat_id BIGINT PRIMARY KEY,
         title TEXT NOT NULL DEFAULT '',
@@ -425,6 +429,17 @@ class Database:
             "JOIN group_admins a ON a.chat_id = g.chat_id "
             "WHERE a.user_id = :u AND g.banned = 0 ORDER BY g.title",
             u=user_id,
+        )
+
+    async def get_meta(self, key: str) -> str | None:
+        row = await self.one("SELECT value FROM bot_meta WHERE key = :k", k=key)
+        return (row or {}).get("value")
+
+    async def set_meta(self, key: str, value: str) -> None:
+        await self.exec(
+            "INSERT INTO bot_meta (key, value) VALUES (:k, :v) "
+            "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+            k=key, v=value,
         )
 
     async def set_dm_state(self, user_id: int, state: str, chat_id: int = 0) -> None:

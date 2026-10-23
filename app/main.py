@@ -35,6 +35,8 @@ log = logging.getLogger("assistant-bot")
 PRIVATE_COMMANDS = [
     BotCommand(command="start", description="open the bot / manage your groups"),
     BotCommand(command="settings", description="group settings (dm only)"),
+    BotCommand(command="help", description="all commands"),
+    BotCommand(command="privacy", description="privacy policy"),
 ]
 ADMIN_COMMANDS = [
     BotCommand(command="stats", description="usage across all groups (super admin)"),
@@ -54,6 +56,7 @@ GROUP_COMMANDS = [
     BotCommand(command="lb", description="leaderboard"),
     BotCommand(command="rules", description="group rules"),
     BotCommand(command="help", description="all commands"),
+    BotCommand(command="privacy", description="privacy policy"),
 ]
 
 

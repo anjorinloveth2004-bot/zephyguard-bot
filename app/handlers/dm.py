@@ -117,13 +117,23 @@ async def _home(message: Message, bot: Bot, db: Database, cfg: Settings) -> None
     uid = message.from_user.id
     groups = await db.groups_admined_by(uid)
     if not groups:
+        me = await bot.me()
+        news = await db.get_meta("news_channel")
+        kb = InlineKeyboardBuilder()
+        kb.button(text="➕ add me to your chat", url=f"https://t.me/{me.username}?startgroup=new")
+        if news:
+            kb.button(text="📰 news channel", url=news)
+        kb.adjust(1)
         await message.answer(
-            "no connected groups yet.\n\n"
-            "add me to a group, make me admin, then send /start there (or tap 'open settings in dm' in the group). "
-            "moderation, points, locks and welcomes all work right away, ai is optional."
+            "hey there! i'm zephy - i help you manage your groups: moderation, points, locks, welcomes and optional ai.\n\n"
+            "use /help to see everything i can do.\n\n"
+            + (f"join my <a href=\"{news}\">news channel</a> for updates.\n\n" if news else "")
+            + "check /privacy to see the privacy policy and how i handle your data.\n\n"
+            "ai is optional: connect a key later from a group's settings if u want it."
         )
+        await message.answer("pick a button below 👇", reply_markup=kb.as_markup())
         if uid in cfg.super_admin_ids:
-            await message.answer("boss tools: /stats, /groups, /disconnect <chat_id>, /banGroup <chat_id>, /unbanGroup <chat_id>")
+            await message.answer("boss tools: /stats, /groups, /disconnect <chat_id>, /banGroup <chat_id>, /unbanGroup <chat_id>, /setnews <url>")
         return
     kb = InlineKeyboardBuilder()
     for g in groups:
@@ -173,6 +183,29 @@ async def key_actions(cb: CallbackQuery, bot: Bot, db: Database, cfg: Settings, 
         await db.update_group(chat_id, key_enc="", key_hint="", provider="", model="")
         await cb.answer("key disconnected")
         await _show_menu(cb, db, chat_id)
+
+
+@router.message(Command("privacy"))
+async def privacy(message: Message) -> None:
+    await message.answer(
+        "zephy privacy policy\n\n"
+        "what i store: group ids and titles, admin ids, settings you choose, points/warns, and api keys admins connect (encrypted, never shown).\n"
+        "what i read: messages in groups i'm a member of, only to answer /ask, summaries, moderation and points when triggered. i don't keep message history.\n"
+        "what i never do: sell data, show keys, or dm your members first.\n\n"
+        "questions: contact the bot owner (super admin). group admins can disconnect their group anytime with /disconnect or by removing me."
+    )
+
+
+@router.message(Command("setnews"))
+async def set_news(message: Message, db: Database, cfg: Settings) -> None:
+    if message.from_user.id not in cfg.super_admin_ids:
+        return
+    url = (message.text or "").split(" ", 1)[-1].strip() if message.text else ""
+    if not url.startswith("https://t.me/"):
+        await message.answer("send the channel link, like /setnews https://t.me/zephynews")
+        return
+    await db.set_meta("news_channel", url)
+    await message.answer(f"news channel set: {url}. it now shows on /start.")
 
 
 @router.message(Command("help"))
