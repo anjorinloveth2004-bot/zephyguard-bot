@@ -54,15 +54,16 @@ async def validate_key(provider: str, api_key: str, model: str, base_url: str = 
     target = LLMTarget(provider=provider, model=model, api_key=api_key, base_url=base_url)
     for attempt in range(2):
         try:
-            out = await complete(target, "reply with the single word ok, no thinking out loud", "ping", max_tokens=400, timeout=30)
+            out = await complete(target, "reply with the single word ok, no thinking out loud", "ping", max_tokens=400, timeout=60)
             if not out:
                 raise LLMError("provider returned an empty response")
             return
-        except LLMError as exc:
-            # one short retry: transient 5xx / overload should not fail the key
-            if attempt == 0 and any(c in str(exc) for c in ("500", "502", "503", "504", "busy", "overloaded")):
+        except (LLMError, Exception) as exc:
+            # one short retry: transient 5xx, overload, timeouts and network hiccups should not fail the key
+            retryable = any(c in str(exc).lower() for c in ("500", "502", "503", "504", "busy", "overloaded", "timeout", "timed out", "network")) or isinstance(exc, TimeoutError)
+            if attempt == 0 and retryable:
                 import asyncio as _a
-                await _a.sleep(3)
+                await _a.sleep(5)
                 continue
             raise
 
