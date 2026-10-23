@@ -45,8 +45,8 @@ ADMIN_COMMANDS = [
     BotCommand(command="heat", description="usage heat map (super admin)"),
     BotCommand(command="health", description="system health (super admin)"),
     BotCommand(command="disconnect", description="disconnect a group (super admin)"),
-    BotCommand(command="banGroup", description="ban a group (super admin)"),
-    BotCommand(command="unbanGroup", description="unban a group (super admin)"),
+    BotCommand(command="bangroup", description="ban a group (super admin)"),
+    BotCommand(command="unbangroup", description="unban a group (super admin)"),
     BotCommand(command="broadcast", description="broadcast to all groups (super admin)"),
 ]
 
