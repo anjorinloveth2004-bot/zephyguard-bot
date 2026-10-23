@@ -61,7 +61,7 @@ SCHEMA = [
         allow_links INTEGER NOT NULL DEFAULT 1,
         welcome_text TEXT NOT NULL DEFAULT 'welcome {name} to {group}',
         blacklist TEXT NOT NULL DEFAULT '',
-        timezone TEXT NOT NULL DEFAULT 'UTC',
+        timezone TEXT NOT NULL DEFAULT 'Africa/Lagos',
         personality TEXT NOT NULL DEFAULT 'helpful, concise, friendly',
         provider TEXT NOT NULL DEFAULT '',
         model TEXT NOT NULL DEFAULT '',
@@ -344,13 +344,13 @@ class Database:
     async def init(self) -> None:
         async with self.engine.begin() as conn:
             dialect = self.engine.dialect.name
-            for stmt in SCHEMA + V22_SCHEMA:
+            for stmt in SCHEMA + V22_SCHEMA + V22B_SCHEMA:
                 await conn.execute(text(pg_compat(stmt, dialect)))
         # V2 columns on `groups` and extra V2 table columns. Each runs in its own transaction
         # so one failure never aborts the rest. SQLite has no ADD COLUMN IF NOT EXISTS, so we
         # check PRAGMA table_info first.
         is_sqlite = self.engine.dialect.name == "sqlite"
-        for col_sql in GROUP_V2_COLUMNS + V2_TABLE_COLUMNS + V22_COLUMNS:
+        for col_sql in GROUP_V2_COLUMNS + V2_TABLE_COLUMNS + V22_COLUMNS + V22B_COLUMNS:
             try:
                 if is_sqlite:
                     m = re.match(r"ALTER TABLE (\w+) ADD COLUMN IF NOT EXISTS (\w+) (.*)", col_sql)
@@ -534,4 +534,60 @@ V22_SCHEMA = [
 ]
 
 GROUP_FIELDS |= {re.match(r"ALTER TABLE groups ADD COLUMN IF NOT EXISTS (\w+)", c).group(1) for c in V22_COLUMNS}
+
+# v2.2b: captcha depth, ban/clean/service/goodbye/log/notes/privacy/purge/pin/rules/topic/warn settings.
+V22B_COLUMNS = [
+    "ALTER TABLE groups ADD COLUMN IF NOT EXISTS captcha_mode TEXT NOT NULL DEFAULT 'button'",
+    "ALTER TABLE groups ADD COLUMN IF NOT EXISTS captcha_kick_secs INTEGER NOT NULL DEFAULT 300",
+    "ALTER TABLE groups ADD COLUMN IF NOT EXISTS captcha_text TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE groups ADD COLUMN IF NOT EXISTS captcha_rules INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE groups ADD COLUMN IF NOT EXISTS clean_commands TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE groups ADD COLUMN IF NOT EXISTS clean_service TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE groups ADD COLUMN IF NOT EXISTS anonadmin_on INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE groups ADD COLUMN IF NOT EXISTS adminerror_on INTEGER NOT NULL DEFAULT 1",
+    "ALTER TABLE groups ADD COLUMN IF NOT EXISTS goodbye_on INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE groups ADD COLUMN IF NOT EXISTS goodbye_text TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE groups ADD COLUMN IF NOT EXISTS clean_goodbye INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE groups ADD COLUMN IF NOT EXISTS last_goodbye_id BIGINT NOT NULL DEFAULT 0",
+    "ALTER TABLE groups ADD COLUMN IF NOT EXISTS disable_admin INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE groups ADD COLUMN IF NOT EXISTS disable_all INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE groups ADD COLUMN IF NOT EXISTS log_cats TEXT NOT NULL DEFAULT 'bans,mutes,warns,notes,settings,messages'",
+    "ALTER TABLE groups ADD COLUMN IF NOT EXISTS privatenotes_on INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE groups ADD COLUMN IF NOT EXISTS purge_confirm INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE groups ADD COLUMN IF NOT EXISTS purge_from_id BIGINT NOT NULL DEFAULT 0",
+    "ALTER TABLE groups ADD COLUMN IF NOT EXISTS pin_loud INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE groups ADD COLUMN IF NOT EXISTS antichannelpin_on INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE groups ADD COLUMN IF NOT EXISTS dbanned_on INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE groups ADD COLUMN IF NOT EXISTS rules_text TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE groups ADD COLUMN IF NOT EXISTS rules_private INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE groups ADD COLUMN IF NOT EXISTS rules_button TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE groups ADD COLUMN IF NOT EXISTS action_topic INTEGER NOT NULL DEFAULT 1",
+    "ALTER TABLE groups ADD COLUMN IF NOT EXISTS topic_default BIGINT NOT NULL DEFAULT 0",
+    "ALTER TABLE groups ADD COLUMN IF NOT EXISTS warn_action_secs INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE groups ADD COLUMN IF NOT EXISTS warn_time INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE captchas ADD COLUMN IF NOT EXISTS captcha_ack INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE warns ADD COLUMN IF NOT EXISTS last_ts BIGINT NOT NULL DEFAULT 0",
+]
+
+V22B_SCHEMA = [
+    """CREATE TABLE IF NOT EXISTS approved_users (
+        chat_id BIGINT NOT NULL,
+        user_id BIGINT NOT NULL,
+        PRIMARY KEY (chat_id, user_id)
+    )""",
+    """CREATE TABLE IF NOT EXISTS timed_actions (
+        chat_id BIGINT NOT NULL,
+        user_id BIGINT NOT NULL,
+        kind TEXT NOT NULL,
+        until_ts BIGINT NOT NULL,
+        PRIMARY KEY (chat_id, user_id, kind)
+    )""",
+    """CREATE TABLE IF NOT EXISTS bot_bans (
+        chat_id BIGINT NOT NULL,
+        user_id BIGINT NOT NULL,
+        PRIMARY KEY (chat_id, user_id)
+    )""",
+]
+
+GROUP_FIELDS |= {re.match(r"ALTER TABLE groups ADD COLUMN IF NOT EXISTS (\w+)", c).group(1) for c in V22B_COLUMNS if c.startswith("ALTER TABLE groups")}
 

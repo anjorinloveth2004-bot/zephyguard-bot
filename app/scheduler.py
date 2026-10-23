@@ -8,6 +8,7 @@ import asyncio
 import json
 import logging
 import time
+from datetime import datetime
 
 from aiogram import Bot
 from aiogram.types import ChatPermissions
@@ -35,6 +36,23 @@ def _perms_dict(p: ChatPermissions) -> dict:
     return p.model_dump(exclude_none=True)
 
 
+def _unlock_time_txt(lock: dict, tz_name: str) -> str:
+    """Human unlock time in the group's timezone. Empty when it can't be worked out."""
+    from zoneinfo import ZoneInfo
+    try:
+        tz = ZoneInfo(tz_name or "UTC")
+    except Exception:
+        tz = ZoneInfo("UTC")
+    if lock["kind"] == "daily":
+        end = lock.get("end_hm") or ""
+        return f"{end} daily ({tz_name})" if end else ""
+    try:
+        t = datetime.fromtimestamp(int(lock["once_end"]), tz)
+        return t.strftime("%d %b %H:%M")
+    except Exception:
+        return ""
+
+
 async def _apply_lock(bot: Bot, db: Database, lock: dict, group_tz: str) -> None:
     chat_id = lock["chat_id"]
     should = lock_should_be_active(lock, group_tz)
@@ -51,7 +69,11 @@ async def _apply_lock(bot: Bot, db: Database, lock: dict, group_tz: str) -> None
         )
         await db.update_group(chat_id, lock_soft=1 if lock["soft"] else 0)
         mode = "soft lock: media and links are blocked, text is open" if lock["soft"] else "full lock"
-        await bot.send_message(chat_id, f"🔒 group locked ({mode}). back at unlock time.")
+        unlock_txt = _unlock_time_txt(lock, group_tz)
+        await bot.send_message(
+            chat_id,
+            f"🔒 group locked ({mode})." + (f" unlocks at {unlock_txt}." if unlock_txt else ""),
+        )
     elif not should and lock["applied"]:
         orig = json.loads(lock["orig_perms"] or "{}")
         restore = ChatPermissions(**orig) if orig else UNLOCKED_PERMS

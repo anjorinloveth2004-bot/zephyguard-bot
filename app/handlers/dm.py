@@ -389,7 +389,7 @@ async def features(cb: CallbackQuery, db: Database, bot: Bot, cfg: Settings) -> 
 
 
 COMMON_TZ = [
-    "UTC", "Africa/Lagos", "Africa/Nairobi", "Africa/Johannesburg", "Europe/London", "Europe/Paris",
+    "Africa/Lagos", "UTC", "Africa/Nairobi", "Africa/Johannesburg", "Europe/London", "Europe/Paris",
     "Europe/Berlin", "Europe/Moscow", "Asia/Dubai", "Asia/Kolkata", "Asia/Singapore", "Asia/Tokyo",
     "Australia/Sydney", "America/New_York", "America/Chicago", "America/Denver", "America/Los_Angeles",
     "America/Sao_Paulo",
