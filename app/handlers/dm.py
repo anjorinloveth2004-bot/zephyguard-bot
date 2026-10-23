@@ -115,21 +115,26 @@ async def settings_cmd(message: Message, bot: Bot, db: Database, cfg: Settings) 
 
 async def _home(message: Message, bot: Bot, db: Database, cfg: Settings) -> None:
     uid = message.from_user.id
-    if uid in cfg.super_admin_ids:
-        await message.answer(
-            "hey boss. dashboard commands: /stats, /groups, /disconnect <chat_id>, /banGroup <chat_id>, /unbanGroup <chat_id>.\n"
-            "group settings: /start and pick a group below."
-        )
     groups = await db.groups_admined_by(uid)
     if not groups:
-        if uid not in cfg.super_admin_ids:
-            await message.answer(NOT_ADMIN_TEXT)
+        await message.answer(
+            "no connected groups yet.\n\n"
+            "add me to a group, make me admin, then send /start there (or tap 'open settings in dm' in the group). "
+            "moderation, points, locks and welcomes all work right away, ai is optional."
+        )
+        if uid in cfg.super_admin_ids:
+            await message.answer("boss tools: /stats, /groups, /disconnect <chat_id>, /banGroup <chat_id>, /unbanGroup <chat_id>")
         return
     kb = InlineKeyboardBuilder()
     for g in groups:
         kb.button(text=(g["title"] or str(g["chat_id"]))[:40], callback_data=f"m:{g['chat_id']}")
     kb.adjust(1)
-    await message.answer("pick a group to manage:", reply_markup=kb.as_markup())
+    await message.answer(
+        "ur connected groups:\n(pick one for settings. ai key is optional, everything else works without it)"
+        if uid not in cfg.super_admin_ids
+        else "ur connected groups: (boss tools: /stats, /groups, /banGroup, /unbanGroup)",
+        reply_markup=kb.as_markup(),
+    )
 
 
 @router.callback_query(F.data.startswith("m:"))
@@ -170,10 +175,28 @@ async def key_actions(cb: CallbackQuery, bot: Bot, db: Database, cfg: Settings, 
         await _show_menu(cb, db, chat_id)
 
 
+@router.message(Command("help"))
+async def dm_help(message: Message) -> None:
+    await message.answer(
+        "zephy commands\n"
+        "groups: /ask (question), /summary, /points, /lb, /rules\n"
+        "admin: /warn, /ban, /kick, /mute, /purge, /award N reason (reply to a message)\n"
+        "dm: /start (manage groups), /settings (same), /help (this)\n\n"
+        "ai is optional: connect a key from /start when u want it. moderation, points, locks and welcomes work without one."
+    )
+
+
 @router.message(F.text)
 async def free_text(message: Message, bot: Bot, db: Database, cfg: Settings, keys: KeyBox) -> None:
     """Handles the next free-text answer for whatever the admin is in the middle of setting up."""
     uid = message.from_user.id
+    # any new command cancels a half-finished setup instead of being read as its input
+    if (message.text or "").startswith("/") and not (message.text or "").startswith("/start"):
+        st = await db.get_dm_state(uid)
+        if st and st["state"]:
+            await db.set_dm_state(uid, "")
+            await message.answer("ok, cancelled that. send /start to reopen settings.")
+            return
     st = await db.get_dm_state(uid)
     state, chat_id = st["state"], int(st["chat_id"])
     if not state or not chat_id:
@@ -235,8 +258,9 @@ async def _receive_key(
         log.info("could not delete key message in dm: %s", exc)
 
     if not looks_like_key(raw):
+        await db.set_dm_state(uid, "")
         await message.answer(
-            "that doesn't look like an api key. paste the key itself (sk-... for openai, AIza... or AQ.Ab8R... for gemini)."
+            "that doesn't look like an api key, so i cancelled key setup. send /start to try again, or just use the bot without ai, moderation/points/locks all work keyless."
             + ("" if deleted else " also, please delete the message you just sent.")
         )
         return
@@ -248,7 +272,11 @@ async def _receive_key(
     try:
         await validate_key(provider, raw, model, cfg.openai_base_url)
     except LLMError as exc:
-        await message.answer(f"key test failed: {exc}. nothing was saved. try again or pick another key.")
+        await db.set_dm_state(uid, "")
+        await message.answer(
+            f"key test failed: {exc}. nothing was saved, and key setup is cancelled.\n"
+            "send /start to try again later, everything else in the bot works without a key."
+        )
         return
 
     # if the default model 404'd, validate_key retried gemini-flash-latest; persist what worked
